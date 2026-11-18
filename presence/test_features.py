@@ -857,8 +857,17 @@ class TestArabicCounting(unittest.TestCase):
 
 class TestPackage(unittest.TestCase):
     def test_shipped_key_file_has_no_key(self):
-        """The archive must never contain a real key."""
-        with open(os.path.join(HERE, "api_key.txt"), encoding="utf-8") as fh:
+        """
+        No distributed copy may carry a real key.
+
+        api_key.txt is gitignored, so it is ABSENT in a git checkout — that is
+        the safe state and must pass rather than error. When present (the
+        archive case), it must contain only comments.
+        """
+        path = os.path.join(HERE, "api_key.txt")
+        if not os.path.exists(path):
+            return          # absent is the correct state in a repo checkout
+        with open(path, encoding="utf-8") as fh:
             content = fh.read()
         for line in content.splitlines():
             line = line.strip()
