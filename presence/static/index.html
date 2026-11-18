@@ -180,6 +180,16 @@
     </div>
 
     <div class="card">
+      <div class="cardhead">AUDIENCE SIMULATOR</div>
+      <p class="cardnote">A judge asks. You answer out loud. The tool measures how you delivered it — not whether the answer was right.</p>
+      <div class="audq" id="audienceQuestion">Press for a question.</div>
+      <div class="calmbtns">
+        <button class="ghostbtn" id="audienceBtn">Ask me a question</button>
+      </div>
+      <p class="cardnote" id="audienceNote"></p>
+    </div>
+
+    <div class="card">
       <div class="cardhead">ASK THE COACH</div>
       <div class="chatlog" id="chatLog" aria-live="polite"></div>
       <div class="chatrow">
@@ -213,6 +223,42 @@
     <div class="delta best">
       <div class="dlabel"><strong id="bestPace">—</strong><span id="bestPaceLabel">no sessions yet</span></div>
       <div class="dnum bestnum">BEST</div>
+    </div>
+
+    <!-- Before / after: the last two sessions side by side. -->
+    <div class="card">
+      <div class="cardhead">BEFORE &amp; AFTER</div>
+      <p class="cardnote" id="compareNote">Comparing your two most recent sessions.</p>
+      <div class="cmp" id="compare"></div>
+    </div>
+
+    <!-- Speech heatmap: one cell per second of the last session. -->
+    <div class="card">
+      <div class="cardhead">WHERE IT HAPPENED</div>
+      <p class="cardnote" id="heatmapNote">Your last session, second by second. Tap a band to read what happened there.</p>
+      <div class="heatmap" id="heatmap"></div>
+      <div class="heatlegend">
+        <span><i class="sw fast"></i>fast</span>
+        <span><i class="sw slow"></i>slow</span>
+        <span><i class="sw fillers"></i>fillers</span>
+        <span><i class="sw pause"></i>pause</span>
+        <span><i class="sw quiet"></i>quiet</span>
+      </div>
+      <p class="cardnote" id="heatDetail"></p>
+    </div>
+
+    <!-- Achievements and personal records. -->
+    <div class="card">
+      <div class="cardhead">ACHIEVEMENTS</div>
+      <div class="achv" id="achievements"></div>
+      <div class="recordrow" id="records"></div>
+    </div>
+
+    <!-- Training roadmap from the latest session's measured weaknesses. -->
+    <div class="card">
+      <div class="cardhead">YOUR TRAINING PLAN</div>
+      <p class="cardnote" id="roadmapNote"></p>
+      <div class="roadmap" id="roadmap"></div>
     </div>
 
     <div class="sessionlist" id="sessionList">

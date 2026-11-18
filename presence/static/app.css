@@ -1047,3 +1047,162 @@ body {
   letter-spacing: .14em;
   font-weight: 800;
 }
+
+/* ==========================================================================
+   Heatmap, achievements, roadmap
+   All three read measured session data. Colours indicate MEASUREMENTS
+   (pace, fillers, pauses, volume), never mood.
+   ========================================================================== */
+
+.heatmap {
+  display: flex;
+  gap: 2px;
+  height: 54px;
+  margin: 12px 0 10px;
+  align-items: stretch;
+}
+
+.hcell {
+  flex: 1;
+  min-width: 3px;
+  border-radius: 3px;
+  background: var(--rule);
+  cursor: pointer;
+  transition: transform .12s ease, outline-color .12s ease;
+  outline: 2px solid transparent;
+}
+
+.hcell:hover { transform: scaleY(1.08); }
+.hcell.sel { outline-color: var(--ink); }
+
+.hcell.fast    { background: #c2410c; }
+.hcell.slow    { background: #93c5fd; }
+.hcell.fillers { background: #fbbf24; }
+.hcell.pause   { background: #a99c90; }
+.hcell.quiet   { background: #d6cdc2; }
+
+.heatlegend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 10.5px;
+  color: var(--faint);
+  margin-bottom: 6px;
+}
+
+.heatlegend .sw {
+  display: inline-block;
+  width: 9px; height: 9px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.heatlegend .sw.fast { background: #c2410c; }
+.heatlegend .sw.slow { background: #93c5fd; }
+.heatlegend .sw.fillers { background: #fbbf24; }
+.heatlegend .sw.pause { background: #a99c90; }
+.heatlegend .sw.quiet { background: #d6cdc2; }
+
+/* Achievements */
+.achv { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+
+.badge {
+  font-size: 11.5px;
+  font-weight: 650;
+  padding: 6px 11px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.badge.locked {
+  background: transparent;
+  border: 1px dashed var(--rule);
+  color: var(--faint);
+  font-weight: 500;
+}
+
+.recordrow { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.rec {
+  flex: 1;
+  min-width: 88px;
+  background: var(--paper-2);
+  border-radius: 12px;
+  padding: 10px;
+  text-align: center;
+}
+
+.rec b {
+  display: block;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: -.4px;
+}
+
+.rec span {
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* Roadmap */
+.roadmap { display: grid; gap: 10px; margin-top: 4px; }
+
+.rtask {
+  border-left: 3px solid var(--accent);
+  padding: 2px 0 2px 12px;
+}
+
+.rtask h4 {
+  font-size: 13.5px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.rtask .why { font-size: 11.5px; color: var(--accent-ink); margin-bottom: 4px; }
+.rtask .drill { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; }
+.rtask .mins { font-size: 10.5px; color: var(--faint); margin-top: 4px; font-weight: 650; }
+
+/* Before / after comparison rows. Each shows both values and the direction,
+   with "improved" defined against the target band rather than raw size. */
+.cmp { display: grid; gap: 8px; margin-top: 6px; }
+
+.cmprow {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.cmprow:last-child { border-bottom: 0; }
+.cmprow .cl { color: var(--ink-soft); }
+.cmprow .cb { font-variant-numeric: tabular-nums; color: var(--faint); }
+.cmprow .ca { font-variant-numeric: tabular-nums; font-weight: 800; }
+.cmprow .cd { font-size: 11px; font-weight: 800; }
+.cmprow .cd.up { color: var(--good); }
+.cmprow .cd.down { color: var(--accent); }
+.cmprow .cd.flat { color: var(--faint); }
+
+/* Audience simulator — an authored question, large enough to read while
+   standing up, with no implication that the answer is graded. */
+.audq {
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 16px;
+  padding: 18px 16px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 18px;
+  line-height: 1.4;
+  letter-spacing: -.2px;
+  margin: 10px 0;
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+}

@@ -900,6 +900,116 @@ class TestVoiceSteadiness(unittest.TestCase):
         self.assertIn('id="finalSteady"', html)
 
 
+class TestNewFeatures(unittest.TestCase):
+    """The five features added after the user asked for more capability."""
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(HERE, "static", "index.html"), encoding="utf-8") as fh:
+            cls.html = fh.read()
+        with open(os.path.join(HERE, "static", "app.js"), encoding="utf-8") as fh:
+            cls.js = fh.read()
+
+    # ---- 2. heatmap -------------------------------------------------------
+    def test_timeline_is_bucketed_per_second(self):
+        t = app.build_timeline(5, [], [-30] * 5, [0, 1, 2], [2])
+        self.assertEqual(len(t), 5)
+        self.assertEqual([b["t"] for b in t], [0, 1, 2, 3, 4])
+
+    def test_timeline_flags_a_pause(self):
+        t = app.build_timeline(4, [2.0], [-30] * 4, [], [])
+        self.assertTrue(any("pause" in b["flags"] for b in t))
+
+    def test_timeline_flags_fillers(self):
+        t = app.build_timeline(3, [], [-30] * 3, [], [0, 0, 0])
+        self.assertIn("fillers", t[0]["flags"])
+
+    def test_timeline_flags_quiet(self):
+        t = app.build_timeline(3, [], [-55, -30, -30], [], [])
+        self.assertIn("quiet", t[0]["flags"])
+
+    def test_empty_timeline_is_empty_not_fake(self):
+        self.assertEqual(app.build_timeline(0, [], [], [], []), [])
+
+    def test_heatmap_exists_in_ui(self):
+        self.assertIn('id="heatmap"', self.html)
+        self.assertIn("renderHeatmap", self.js)
+
+    # ---- 4. before / after ------------------------------------------------
+    def test_compare_detects_improvement(self):
+        a = {"wpm": 160, "filler_total": 12, "pauses": [3, 1]}
+        b = {"wpm": 124, "filler_total": 4, "pauses": [1]}
+        r = app.compare_sessions(a, b)
+        self.assertEqual(r["summary"], "3 of 3 measures improved")
+
+    def test_compare_detects_regression(self):
+        a = {"wpm": 120, "filler_total": 2, "pauses": [1]}
+        b = {"wpm": 165, "filler_total": 9, "pauses": [4]}
+        r = app.compare_sessions(a, b)
+        self.assertEqual(r["summary"], "0 of 3 measures improved")
+
+    def test_compare_treats_moving_to_target_as_improvement(self):
+        """Going 150 -> 125 is better even though the raw number fell."""
+        r = app.compare_sessions({"wpm": 150}, {"wpm": 125})
+        pace = [x for x in r["rows"] if x["key"] == "pace"][0]
+        self.assertTrue(pace["improved"])
+
+    # ---- 10. achievements --------------------------------------------------
+    def test_no_achievements_without_sessions(self):
+        a = app.achievements([])
+        self.assertEqual(a["unlocked"], [])
+        self.assertTrue(a["note"])
+
+    def test_first_session_unlocks(self):
+        a = app.achievements([{"wpm": 120, "filler_total": 5, "nudges": []}])
+        keys = [x["key"] for x in a["unlocked"]]
+        self.assertIn("first_session", keys)
+
+    def test_records_are_computed_not_invented(self):
+        ss = [{"wpm": 100}, {"wpm": 122}, {"wpm": 180}]
+        r = app.personal_records(ss)
+        self.assertEqual(r["sessions"], 3)
+        # 122 is closest to the 110-135 band, so it is the best pace.
+        self.assertEqual(r["best_pace"], 122)
+
+    # ---- 6. roadmap --------------------------------------------------------
+    def test_roadmap_is_empty_without_data(self):
+        r = app.training_roadmap([])
+        self.assertEqual(r["items"], [])
+        self.assertTrue(r["note"])
+
+    def test_roadmap_targets_the_worst_measured_problem(self):
+        s = {"wpm": 150, "filler_total": 20, "duration_seconds": 60,
+             "nudges": [], "avg_db": -30, "created_at": "2026-11-18T00:00:00+00:00"}
+        keys = [i["key"] for i in app.training_roadmap([s])["items"]]
+        self.assertIn("fillers", keys)
+
+    def test_roadmap_counts_down_to_deadline(self):
+        s = {"wpm": 120, "filler_total": 1, "duration_seconds": 60,
+             "nudges": [], "avg_db": -30}
+        r = app.training_roadmap([s], "2030-01-01")
+        self.assertIsInstance(r["days_left"], int)
+
+    # ---- 3. audience simulator ---------------------------------------------
+    def test_audience_returns_questions(self):
+        r = app.audience_questions("en", 3)
+        self.assertEqual(len(r["questions"]), 3)
+        self.assertTrue(all(q["text"] for q in r["questions"]))
+
+    def test_audience_question_count_is_bounded(self):
+        r = app.audience_questions("en", 999)
+        self.assertLessEqual(len(r["questions"]), 8)
+
+    def test_audience_does_not_claim_to_grade_answers(self):
+        """The tool measures delivery, not correctness. The note must say so."""
+        note = app.audience_questions("en")["note"].lower()
+        self.assertIn("not whether", note)
+
+    def test_audience_panel_exists(self):
+        self.assertIn('id="audienceQuestion"', self.html)
+        self.assertIn("askAudienceQuestion", self.js)
+
+
 class TestArabicCounting(unittest.TestCase):
     """
     Arabic is one of the three target profiles, so counting it wrongly is a

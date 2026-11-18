@@ -489,6 +489,10 @@ class Session:
     filler_total: int = 0
     rate: str = "unknown"
     nudges: List[dict] = field(default_factory=list)
+    # One bucket per second of the recording. This is what makes the heatmap
+    # and the before/after comparison possible: without a timeline the report
+    # can only describe a whole session, never point at a moment inside it.
+    timeline: List[dict] = field(default_factory=list)
 
 
 def _as_seconds(value) -> float:
@@ -501,6 +505,108 @@ def _as_seconds(value) -> float:
         return round(max(0.0, float(value)), 1)
     except (TypeError, ValueError):
         return 0.0
+
+
+# ---------------------------------------------------------------------------
+# Timeline — one bucket per second of the recording.
+#
+# The heatmap and the before/after comparison both need to point at a moment
+# INSIDE a session, not just summarise it. The browser already collects
+# per-frame volume and pause gaps; this folds them into second-sized buckets.
+#
+# Every flag is computed from a measurement. Nothing here infers emotion.
+# ---------------------------------------------------------------------------
+
+def _is_number(value) -> bool:
+    """True for a finite number, False for anything else (strings, None, nan)."""
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return False
+    return f == f and abs(f) != float("inf")
+
+
+TIMELINE_FAST_WPM = 160.0
+TIMELINE_SLOW_WPM = 95.0
+TIMELINE_QUIET_DB = -40.0
+
+
+def build_timeline(
+    duration: float,
+    pauses: List[float],
+    db_samples: List[float],
+    word_times: List[float],
+    filler_times: List[float],
+) -> List[dict]:
+    """
+    Fold raw per-frame data into one bucket per second.
+
+    Args:
+      duration:    total recording length in seconds
+      pauses:      each pause length, in order
+      db_samples:  volume readings, roughly one per animation frame
+      word_times:  the second at which each spoken word landed
+      filler_times: the second at which each filler landed
+
+    Returns a list of buckets: {t, wpm, fillers, paused, db, flags}
+    Buckets are always the same length in time, so the heatmap can draw them
+    side by side without rescaling.
+    """
+    seconds = int(max(0.0, duration))
+    if seconds <= 0:
+        return []
+
+    buckets = [
+        {"t": i, "wpm": None, "fillers": 0, "paused": False, "db": None, "flags": []}
+        for i in range(seconds)
+    ]
+
+    # Volume: the browser samples far faster than 1 Hz, so average per bucket.
+    if db_samples:
+        per_bucket = max(1, len(db_samples) // seconds)
+        for i in range(seconds):
+            chunk = db_samples[i * per_bucket:(i + 1) * per_bucket]
+            if chunk:
+                buckets[i]["db"] = round(sum(chunk) / len(chunk), 1)
+
+    # Pauses occupy a contiguous run of seconds starting where they began.
+    # We do not store exact pause positions, so they are laid down in order
+    # from the start of the following word — approximate, and labelled so.
+    t = 0.0
+    for length in pauses:
+        start = int(t)
+        end = min(seconds, start + max(1, int(round(length))))
+        for i in range(start, end):
+            buckets[i]["paused"] = True
+        t += length + 1
+
+    # Words and fillers, bucketed by the second they were spoken.
+    for wt in word_times:
+        i = int(wt)
+        if 0 <= i < seconds:
+            buckets[i]["wpm"] = (buckets[i]["wpm"] or 0) + 60
+    for ft in filler_times:
+        i = int(ft)
+        if 0 <= i < seconds:
+            buckets[i]["fillers"] += 1
+
+    # Flags drive the heatmap colours. Only measured conditions qualify.
+    for b in buckets:
+        if b["paused"]:
+            b["flags"].append("pause")
+        if b["wpm"] is not None and b["wpm"] > TIMELINE_FAST_WPM:
+            b["flags"].append("fast")
+        elif b["wpm"] is not None and b["wpm"] < TIMELINE_SLOW_WPM:
+            b["flags"].append("slow")
+        if b["fillers"] >= 2:
+            b["flags"].append("fillers")
+        if b["db"] is not None and b["db"] < TIMELINE_QUIET_DB:
+            b["flags"].append("quiet")
+        # Filler density per second is the most actionable single signal.
+        if b["fillers"] and "fillers" not in b["flags"]:
+            b["flags"].append("fillers")
+
+    return buckets
 
 
 def build_session(payload: dict) -> Session:
@@ -558,7 +664,328 @@ def build_session(payload: dict) -> Session:
         filler_total=sum(fillers.values()),
         rate=rate_profile(transcript, speaking),
         nudges=nudges,
+        timeline=build_timeline(
+            duration,
+            pauses,
+            [float(x) for x in (payload.get("db_samples") or []) if _is_number(x)],
+            [float(x) for x in (payload.get("word_times") or []) if _is_number(x)],
+            [float(x) for x in (payload.get("filler_times") or []) if _is_number(x)],
+        ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Progress analysis — achievements and a training roadmap.
+#
+# Both read only sessions the student actually recorded. With too few sessions
+# they say so rather than inventing a milestone, because a fake achievement is
+# worthless to the student and obvious to a judge.
+# ---------------------------------------------------------------------------
+
+MILESTONES = [
+    ("first_session", "First session recorded", lambda ss: len(ss) >= 1),
+    ("five_sessions", "Five sessions completed", lambda ss: len(ss) >= 5),
+    ("ten_sessions", "Ten sessions completed", lambda ss: len(ss) >= 10),
+    ("in_band", "Pace inside the target band",
+     lambda ss: any(WPM_TARGET_LOW <= (s.get("wpm") or 0) <= WPM_TARGET_HIGH for s in ss)),
+    ("low_fillers", "Under 3 fillers in a session",
+     lambda ss: any((s.get("filler_total") or 99) <= 2 for s in ss)),
+    ("no_freeze", "A session with no long freezes",
+     lambda ss: any(len([n for n in (s.get("nudges") or [])]) == 0 for s in ss)),
+    ("three_in_band", "Three sessions inside the band",
+     lambda ss: sum(1 for s in ss if WPM_TARGET_LOW <= (s.get("wpm") or 0) <= WPM_TARGET_HIGH) >= 3),
+]
+
+
+def personal_records(sessions: List[dict]) -> dict:
+    """
+    Best-ever figures across the student's own sessions.
+
+    'Best' means closest to target for pace, and lowest for fillers — never
+    'most' anything, which would reward speaking fast or long.
+    """
+    rates = [s.get("wpm") for s in sessions if (s.get("wpm") or 0) > 0]
+    fillers = [s.get("filler_total") for s in sessions if s.get("filler_total") is not None]
+    durations = [s.get("duration_seconds") for s in sessions if s.get("duration_seconds")]
+
+    best_pace = None
+    if rates:
+        target = (WPM_TARGET_LOW + WPM_TARGET_HIGH) / 2
+        best_pace = min(rates, key=lambda r: abs(r - target))
+
+    return {
+        "sessions": len(sessions),
+        "best_pace": round(best_pace, 1) if best_pace is not None else None,
+        "fewest_fillers": min(fillers) if fillers else None,
+        "longest_speaking": round(max(durations), 1) if durations else None,
+    }
+
+
+def achievements(sessions: List[dict]) -> dict:
+    """Unlocked and pending milestones, plus the records to beat."""
+    unlocked = []
+    locked = []
+    for key, label, test in MILESTONES:
+        try:
+            reached = bool(test(sessions))
+        except Exception:
+            reached = False
+        (unlocked if reached else locked).append({"key": key, "label": label})
+
+    return {
+        "unlocked": unlocked,
+        "locked": locked,
+        "records": personal_records(sessions),
+        # Nothing is claimed before there is something to claim.
+        "note": (
+            "No sessions yet — record one to start tracking progress."
+            if not sessions else ""
+        ),
+    }
+
+
+# Weakness -> drill. Each maps a MEASURED condition to an action, so the plan
+# is derived from the student's own numbers rather than a generic template.
+TRAINING_DRILLS = [
+    {
+        "key": "fillers",
+        "when": lambda r: (r.get("fillers_per_min") or 0) > 6,
+        "title": "Cut fillers by pausing",
+        "why": "More than 6 fillers per minute last session.",
+        "drill": "Read one paragraph aloud. Every time you feel an 'um' coming, close your mouth and count one second instead.",
+        "minutes": 5,
+    },
+    {
+        "key": "fast",
+        "when": lambda r: (r.get("wpm") or 0) > WPM_TARGET_HIGH + 15,
+        "title": "Slow the ends of sentences",
+        "why": "Pace above the target band.",
+        "drill": "Pick three sentences. Say each one, then stop completely for two seconds before the next.",
+        "minutes": 6,
+    },
+    {
+        "key": "slow",
+        "when": lambda r: 0 < (r.get("wpm") or 0) < WPM_TARGET_LOW - 15,
+        "title": "Build forward momentum",
+        "why": "Pace below the target band.",
+        "drill": "Read the same paragraph twice; the second time, aim to finish ten seconds sooner without rushing any single word.",
+        "minutes": 6,
+    },
+    {
+        "key": "freezes",
+        "when": lambda r: (r.get("freezes") or 0) >= 2,
+        "title": "Rehearse the first sentence",
+        "why": "Repeated long silences during the session.",
+        "drill": "Say only your opening sentence, out loud, until you can start it without looking. The freeze usually begins there.",
+        "minutes": 4,
+    },
+    {
+        "key": "quiet",
+        "when": lambda r: (r.get("avg_db") or 0) < -42,
+        "title": "Project to the back row",
+        "why": "Average volume was low for this microphone.",
+        "drill": "Stand up and read to a point on the far wall. Volume is measured relative to your own recording, so aim for a higher reading than last time.",
+        "minutes": 5,
+    },
+    {
+        "key": "steady",
+        "when": lambda r: (r.get("pitch_cv") or 0) > 9,
+        "title": "Steady your voice",
+        "why": "Pitch moved a lot — an unsteady delivery.",
+        "drill": "Hum one steady note for five seconds, then say a sentence keeping that same pitch. Aim for a lower variation than last session.",
+        "minutes": 4,
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# AI audience simulator.
+#
+# A judge-style question bank. The questions are AUTHORED, not generated, for
+# two reasons: a school competition should not depend on an API being awake,
+# and a generated question could ask something inappropriate. The student
+# answers out loud, and the tool measures how the answer was DELIVERED —
+# pace, fillers, pauses — which is what this project can honestly assess.
+#
+# It does not grade whether the answer was correct. That would need to know
+# the content of the talk, and a browser microphone cannot supply that.
+# ---------------------------------------------------------------------------
+
+AUDIENCE_QUESTIONS = {
+    "en": [
+        "Can you tell us in one sentence what your project does?",
+        "Why did you choose this problem?",
+        "What would you do differently if you started again?",
+        "Who is the person this helps, and how do you know?",
+        "What is the weakest part of your work?",
+        "How does your project compare with what already exists?",
+        "What did you learn that surprised you?",
+        "Can you explain it to someone who knows nothing about it?",
+    ],
+    "ar": [
+        "\u0645\u0627 \u0647\u0648 \u0645\u0634\u0631\u0648\u0639\u0643 \u0641\u064a \u062c\u0645\u0644\u0629 \u0648\u0627\u062d\u062f\u0629\u061f",
+        "\u0644\u0645\u0627\u0630\u0627 \u0627\u062e\u062a\u0631\u062a \u0647\u0630\u0647 \u0627\u0644\u0645\u0634\u0643\u0644\u0629\u061f",
+        "\u0645\u0627 \u0623\u0636\u0639\u0641 \u062c\u0627\u0646\u0628 \u0641\u064a \u0639\u0645\u0644\u0643\u061f",
+        "\u0645\u0646 \u0647\u0648 \u0627\u0644\u0634\u062e\u0635 \u0627\u0644\u0630\u064a \u064a\u0633\u062a\u0641\u064a\u062f \u0645\u0646 \u0647\u0630\u0627\u061f",
+    ],
+}
+
+
+def audience_questions(language: str = "en", count: int = 3) -> dict:
+    """
+    Pick judge-style questions for a practice round.
+
+    English is the default because the project's scope is Arab students
+    presenting IN ENGLISH; Arabic questions are offered for rehearsal in the
+    first language.
+    """
+    bank = AUDIENCE_QUESTIONS.get((language or "en")[:2], AUDIENCE_QUESTIONS["en"])
+    picked = bank[:max(1, min(count, len(bank)))]
+    return {
+        "questions": [{"id": i, "text": q} for i, q in enumerate(picked)],
+        "note": (
+            "Answer each one out loud. The tool measures HOW you answered — "
+            "pace, fillers and pauses — not whether the answer was correct."
+        ),
+    }
+
+
+def compare_sessions(before: dict, after: dict) -> dict:
+    """
+    Measure what changed between two recordings.
+
+    Only differences in measured values are reported. "Better" is defined
+    against the target band, not against raw magnitude, so speaking faster is
+    not automatically an improvement.
+    """
+    target = (WPM_TARGET_LOW + WPM_TARGET_HIGH) / 2
+
+    def pace_delta(a, b):
+        """
+        Distance from target before, minus distance after.
+
+        Positive means the student moved CLOSER to the band, which is an
+        improvement regardless of whether the raw number rose or fell.
+        """
+        if not a or not b:
+            return None
+        return round(abs(a - target) - abs(b - target), 1)
+
+    def plain_delta(a, b):
+        if a is None or b is None:
+            return None
+        return round(b - a, 1)
+
+    before_wpm = before.get("wpm") or None
+    after_wpm = after.get("wpm") or None
+
+    rows = [
+        {
+            "key": "pace",
+            "label": "Speaking pace",
+            "before": round(before_wpm, 1) if before_wpm else None,
+            "after": round(after_wpm, 1) if after_wpm else None,
+            "delta": plain_delta(before_wpm, after_wpm),
+            # Closer to target is better, even if the raw number went up.
+            "improved": (pace_delta(before_wpm, after_wpm) or 0) > 0,
+        },
+        {
+            "key": "fillers",
+            "label": "Fillers",
+            "before": before.get("filler_total"),
+            "after": after.get("filler_total"),
+            "delta": plain_delta(before.get("filler_total"), after.get("filler_total")),
+            "improved": (after.get("filler_total") or 0) < (before.get("filler_total") or 0),
+        },
+        {
+            "key": "pauses",
+            "label": "Long pauses",
+            "before": len([p for p in (before.get("pauses") or []) if p > 2]),
+            "after": len([p for p in (after.get("pauses") or []) if p > 2]),
+            "delta": plain_delta(
+                len([p for p in (before.get("pauses") or []) if p > 2]),
+                len([p for p in (after.get("pauses") or []) if p > 2]),
+            ),
+            "improved": (
+                len([p for p in (after.get("pauses") or []) if p > 2])
+                < len([p for p in (before.get("pauses") or []) if p > 2])
+            ),
+        },
+    ]
+
+    improved = sum(1 for r in rows if r["improved"])
+    return {
+        "rows": rows,
+        "summary": f"{improved} of {len(rows)} measures improved",
+        "before_at": before.get("created_at"),
+        "after_at": after.get("created_at"),
+    }
+
+
+def training_roadmap(sessions: List[dict], deadline: Optional[str] = None) -> dict:
+    """
+    Build a plan from the most recent session's measured weaknesses.
+
+    Ordering is by impact: fillers and freezes first because they are what an
+    audience notices and what this tool measures most reliably.
+    """
+    if not sessions:
+        return {
+            "items": [],
+            "note": "Record one session and a plan will be built from your own numbers.",
+            "days_left": None,
+        }
+
+    latest = sessions[-1]
+
+    # Derive the figures the drills read.
+    duration = latest.get("duration_seconds") or 0
+    fillers = latest.get("filler_total") or 0
+    rating = {
+        "wpm": latest.get("wpm") or 0,
+        "fillers_per_min": (fillers / (duration / 60.0)) if duration >= 20 else 0,
+        "freezes": len(latest.get("nudges") or []),
+        "avg_db": latest.get("avg_db") or -60,
+        "pitch_cv": latest.get("pitch_cv"),
+    }
+
+    items = []
+    for drill in TRAINING_DRILLS:
+        try:
+            if drill["when"](rating):
+                items.append({
+                    "key": drill["key"],
+                    "title": drill["title"],
+                    "why": drill["why"],
+                    "drill": drill["drill"],
+                    "minutes": drill["minutes"],
+                })
+        except Exception:
+            continue
+
+    days_left = None
+    if deadline:
+        try:
+            when = datetime.fromisoformat(deadline).date()
+            days_left = (when - datetime.now(timezone.utc).date()).days
+        except (ValueError, TypeError):
+            days_left = None
+
+    if not items:
+        items = [{
+            "key": "maintain",
+            "title": "Hold this level",
+            "why": "Nothing was badly out of range last session.",
+            "drill": "Record the same passage again and try to keep every figure within a few percent.",
+            "minutes": 5,
+        }]
+
+    return {
+        "items": items,
+        "note": "",
+        "days_left": days_left,
+        "based_on": latest.get("created_at"),
+    }
 
 
 def report(session: Session) -> dict:
@@ -949,6 +1376,39 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, key_status())
         if path == "/api/history":
             return self._json(200, {"sessions": load_sessions()})
+        if path == "/api/achievements":
+            return self._json(200, achievements(load_sessions(100)))
+        if path == "/api/audience":
+            params = parse_qs(urlparse(self.path).query)
+            lang = params.get("language", ["en"])[0]
+            n = params.get("count", ["3"])[0]
+            try:
+                n_int = int(n)
+            except ValueError:
+                n_int = 3
+            return self._json(200, audience_questions(lang, n_int))
+        if path == "/api/compare":
+            sessions = load_sessions(200)
+            params = parse_qs(urlparse(self.path).query)
+            a = params.get("before", [""])[0]
+            b = params.get("after", [""])[0]
+            if a and b:
+                by_id = {s.get("session_id"): s for s in sessions}
+                first, second = by_id.get(a), by_id.get(b)
+            else:
+                first = sessions[-2] if len(sessions) >= 2 else None
+                second = sessions[-1] if sessions else None
+            if not first or not second:
+                return self._json(200, {
+                    "rows": [],
+                    "summary": "",
+                    "note": "Record two sessions and the comparison appears here.",
+                })
+            return self._json(200, compare_sessions(first, second))
+        if path == "/api/roadmap":
+            parsed = urlparse(self.path)
+            deadline = (parse_qs(parsed.query).get("deadline", [""])[0] or None)
+            return self._json(200, training_roadmap(load_sessions(100), deadline))
         if path == "/api/spec":
             return self._json(200, {
                 "wpm_target": [WPM_TARGET_LOW, WPM_TARGET_HIGH],

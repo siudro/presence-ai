@@ -111,6 +111,8 @@ const mic = {
   captureBuffers: [],
   captureRate: 0,
   pitchFrames: [],
+  wordTimes: [],
+  fillerTimes: [],
   recognition: null,
   finalText: "",
   interimText: "",
@@ -536,6 +538,7 @@ function startRecognition() {
   mic.recognition.lang = SPEECH_LOCALES[config.language] || "en-US";
 
   mic.recognition.onresult = (event) => {
+    const before = mic.finalText;
     mic.interimText = "";
     for (let i = event.resultIndex; i < event.results.length; i++) {
       const chunk = event.results[i][0].transcript;
@@ -545,6 +548,17 @@ function startRecognition() {
     // Cohere's fragments are more accurate than the browser's guesses, so
     // once Cohere has produced text it owns the panel. Before that, the
     // browser's interim words give instant feedback.
+    // Record where new words and fillers landed, so the timeline can show
+    // WHEN something happened rather than only how many.
+    const added = mic.finalText.slice(before.length);
+    if (added.trim()) {
+      const sec = elapsedSeconds();
+      const newWords = (added.match(WORD_PATTERN) || []).length;
+      for (let k = 0; k < newWords; k++) mic.wordTimes.push(sec);
+      const newFillers = countFillers(added).total;
+      for (let k = 0; k < newFillers; k++) mic.fillerTimes.push(sec);
+    }
+
     // Once Cohere has produced anything, it owns the panel. The browser's
     // guesses must not overwrite it while the next chunk is in flight — that
     // is what made the text appear to freeze on the first fragment.
@@ -641,6 +655,8 @@ window.presenceAdapter = {
     mic.pauses = [];
     mic.dbSamples = [];
     mic.pitchFrames = [];
+    mic.wordTimes = [];
+    mic.fillerTimes = [];
     mic.lastLoudAt = 0;
     mic.lastTickPause = 0;
     mic.running = true;
@@ -739,6 +755,11 @@ window.presenceAdapter = {
           peak_db: Math.max(-60, ...mic.dbSamples.slice(-300)),
           transcript,
           nudges: [],
+          // Timeline inputs. The server folds these into one bucket per
+          // second; it decides what the buckets mean, not the browser.
+          db_samples: mic.dbSamples.slice(-3000),
+          word_times: mic.wordTimes.slice(0, 3000),
+          filler_times: mic.fillerTimes.slice(0, 500),
         }),
       });
       if (res.ok) report = await res.json();
@@ -756,6 +777,232 @@ window.presenceAdapter = {
 
 const SCREENS = ["readyScreen", "liveScreen", "reportScreen", "progressScreen"];
 
+/* ======================================================== heatmap + more */
+
+/*
+ * The heatmap draws one cell per second of the last session, coloured by the
+ * flags the server computed. Clicking a cell reports what was measured in
+ * that second — pace, fillers, volume — never an interpretation of it.
+ */
+let heatmapCells = [];
+
+function renderHeatmap(timeline, note) {
+  const box = $("heatmap");
+  const detail = $("heatDetail");
+  const label = $("heatmapNote");
+  if (!box) return;
+
+  if (!timeline || !timeline.length) {
+    box.innerHTML = "";
+    heatmapCells = [];
+    if (label) label.textContent = "No session yet — the heatmap appears after your first recording.";
+    if (detail) detail.textContent = "";
+    return;
+  }
+
+  heatmapCells = timeline;
+  box.innerHTML = timeline.map((b, i) => {
+    // Priority order: a pause or fast burst matters more than a quiet second.
+    let cls = "";
+    if (b.flags.indexOf("pause") >= 0) cls = "pause";
+    else if (b.flags.indexOf("fast") >= 0) cls = "fast";
+    else if (b.flags.indexOf("fillers") >= 0) cls = "fillers";
+    else if (b.flags.indexOf("slow") >= 0) cls = "slow";
+    else if (b.flags.indexOf("quiet") >= 0) cls = "quiet";
+    return '<div class="hcell ' + cls + '" data-i="' + i + '" role="button" tabindex="0" ' +
+           'aria-label="second ' + b.t + '"></div>';
+  }).join("");
+
+  if (label) label.textContent = "Your last session, second by second. Tap a band to read what happened there.";
+  if (detail) {
+    const flagged = timeline.filter((b) => b.flags.length).length;
+    detail.textContent = flagged
+      ? flagged + " of " + timeline.length + " seconds had something worth seeing."
+      : "Nothing stood out — pace, pauses and volume stayed in range throughout.";
+  }
+}
+
+function describeSecond(b) {
+  if (!b) return "";
+  const parts = ["Second " + b.t + ":"];
+  if (b.wpm != null) parts.push("about " + Math.round(b.wpm) + " wpm.");
+  if (b.fillers) parts.push(b.fillers + " filler" + (b.fillers === 1 ? "" : "s") + ".");
+  if (b.paused) parts.push("marked as a pause.");
+  if (b.db != null) parts.push("volume " + b.db + " dBFS.");
+  if (!b.flags.length) parts.push("nothing out of range.");
+  else parts.push("flags: " + b.flags.join(", ") + ".");
+  return parts.join(" ");
+}
+
+function onHeatmapClick(event) {
+  const cell = event.target.closest(".hcell");
+  if (!cell) return;
+  const i = Number(cell.dataset.i);
+  const b = heatmapCells[i];
+  const detail = $("heatDetail");
+  if (detail) detail.textContent = describeSecond(b);
+
+  Array.from(cell.parentElement.children).forEach((c) => c.classList.remove("sel"));
+  cell.classList.add("sel");
+}
+
+/* ==================================================== audience simulator */
+
+/*
+ * Draw a judge-style question and invite the student to answer it aloud.
+ *
+ * The question is authored (see AUDIENCE_QUESTIONS in app.py), not generated:
+ * a competition demo must not depend on an API being awake, and a generated
+ * question could ask something unsuitable for a school student.
+ *
+ * Nothing here claims to grade the answer. It sets up the situation; the
+ * existing measurement system records how the answer was delivered.
+ */
+const audienceState = { questions: [], index: 0 };
+
+async function loadAudienceQuestions() {
+  const lang = (config.language || "en-US").slice(0, 2);
+  try {
+    const res = await fetch("/api/audience?language=" + encodeURIComponent(lang) + "&count=5");
+    const data = await res.json();
+    audienceState.questions = (data.questions || []).map((q) => q.text);
+    audienceState.index = 0;
+    return audienceState.questions.length > 0;
+  } catch (err) {
+    audienceState.questions = [];
+    return false;
+  }
+}
+
+async function askAudienceQuestion() {
+  const box = $("audienceQuestion");
+  const note = $("audienceNote");
+  if (!box) return;
+
+  if (!audienceState.questions.length) {
+    const ok = await loadAudienceQuestions();
+    if (!ok) {
+      box.textContent = "Questions need the local server.";
+      return;
+    }
+  }
+
+  const q = audienceState.questions[audienceState.index % audienceState.questions.length];
+  audienceState.index += 1;
+  box.textContent = q;
+  if (note) {
+    note.textContent = "Answer out loud, then press Start speaking to have your delivery measured.";
+  }
+}
+
+async function loadCompare() {
+  const box = $("compare");
+  const note = $("compareNote");
+  if (!box) return;
+  try {
+    const res = await fetch("/api/compare");
+    const data = await res.json();
+    if (!data.rows || !data.rows.length) {
+      box.innerHTML = "";
+      if (note) note.textContent = data.note || "Record two sessions and the comparison appears here.";
+      return;
+    }
+    if (note) note.textContent = data.summary + " between your last two sessions.";
+
+    box.innerHTML = data.rows.map((r) => {
+      const before = r.before == null ? "—" : r.before;
+      const after = r.after == null ? "—" : r.after;
+      let arrow = "";
+      let cls = "flat";
+      if (r.delta == null) {
+        arrow = "";
+      } else if (r.improved) {
+        arrow = "▲"; cls = "up";
+      } else if (r.delta === 0) {
+        arrow = "="; cls = "flat";
+      } else {
+        arrow = "▼"; cls = "down";
+      }
+      return '<div class="cmprow"><span class="cl">' + escapeHtml(r.label) + "</span>" +
+             '<span class="cb">' + before + "</span>" +
+             '<span class="ca">' + after + "</span>" +
+             '<span class="cd ' + cls + '">' + arrow + "</span></div>";
+    }).join("");
+  } catch (err) {
+    box.innerHTML = "";
+    if (note) note.textContent = "Comparison needs the local server.";
+  }
+}
+
+async function loadAchievements() {
+  const box = $("achievements");
+  const recs = $("records");
+  if (!box) return;
+  try {
+    const res = await fetch("/api/achievements");
+    const data = await res.json();
+
+    if (!data.unlocked.length && !data.locked.length) {
+      box.innerHTML = '<p class="cardnote">' + escapeHtml(data.note || "No sessions yet.") + "</p>";
+      if (recs) recs.innerHTML = "";
+      return;
+    }
+
+    box.innerHTML =
+      data.unlocked.map((a) => '<span class="badge">' + escapeHtml(a.label) + "</span>").join("") +
+      data.locked.slice(0, 3).map((a) => '<span class="badge locked">' + escapeHtml(a.label) + "</span>").join("");
+
+    const r = data.records || {};
+    if (recs) {
+      const cells = [];
+      if (r.sessions != null) cells.push(["Sessions", r.sessions]);
+      if (r.best_pace != null) cells.push(["Best pace", r.best_pace]);
+      if (r.fewest_fillers != null) cells.push(["Fewest fillers", r.fewest_fillers]);
+      recs.innerHTML = cells.map(
+        ([k, v]) => '<div class="rec"><b>' + v + "</b><span>" + escapeHtml(k) + "</span></div>"
+      ).join("");
+    }
+  } catch (err) {
+    box.innerHTML = '<p class="cardnote">Progress needs the local server.</p>';
+  }
+}
+
+async function loadRoadmap() {
+  const box = $("roadmap");
+  const note = $("roadmapNote");
+  if (!box) return;
+
+  // The deadline is optional; if the student has set one in Settings it is
+  // used to show days remaining. Absent, the plan still works.
+  const deadline = window.__deadline || "";
+  try {
+    const res = await fetch("/api/roadmap" + (deadline ? "?deadline=" + encodeURIComponent(deadline) : ""));
+    const data = await res.json();
+
+    if (!data.items || !data.items.length) {
+      box.innerHTML = "";
+      if (note) note.textContent = data.note || "Record a session to get a plan.";
+      return;
+    }
+
+    if (note) {
+      note.textContent = data.days_left != null
+        ? data.days_left + " day" + (data.days_left === 1 ? "" : "s") + " until your deadline. Built from your last session."
+        : "Built from the weaknesses measured in your last session.";
+    }
+
+    box.innerHTML = data.items.map((i) =>
+      '<div class="rtask"><h4>' + escapeHtml(i.title) + "</h4>" +
+      '<div class="why">' + escapeHtml(i.why) + "</div>" +
+      '<div class="drill">' + escapeHtml(i.drill) + "</div>" +
+      '<div class="mins">' + i.minutes + " minutes</div></div>"
+    ).join("");
+  } catch (err) {
+    if (note) note.textContent = "The plan needs the local server.";
+    box.innerHTML = "";
+  }
+}
+
 /* ============================================================== progress */
 
 /*
@@ -763,6 +1010,20 @@ const SCREENS = ["readyScreen", "liveScreen", "reportScreen", "progressScreen"];
  * persisted but which no screen ever displayed. Nothing here is invented:
  * with no sessions, it says so.
  */
+/**
+ * Load every panel the progress screen shows.
+ *
+ * This exists because three panels were added and one call site (the #hash
+ * deep link) still only loaded the chart — the panels rendered empty. One
+ * entry point makes that mistake impossible to repeat.
+ */
+function loadProgressScreen() {
+  loadProgress();
+  loadAchievements();
+  loadRoadmap();
+  loadCompare();
+}
+
 async function loadProgress() {
   const stairs = $("stairs");
   const list = $("sessionList");
@@ -780,6 +1041,7 @@ async function loadProgress() {
   }
 
   if (!rows.length) {
+    renderHeatmap([], "");
     stairs.innerHTML = "";
     const d = $("deltaNum");
     if (d) d.textContent = "\u2014";
@@ -791,6 +1053,11 @@ async function loadProgress() {
     }
     return;
   }
+
+  // The heatmap shows the MOST RECENT session's timeline: that is the one a
+  // student wants to inspect, and older timelines would be a different length.
+  const latest = rows[rows.length - 1];
+  renderHeatmap(latest && latest.timeline ? latest.timeline : [], "");
 
   // Bars scaled against the best pace in the window, so the shape is honest
   // even when every session is below target.
@@ -1351,14 +1618,14 @@ function initSession() {
   if (progressBtn) {
     progressBtn.addEventListener("click", () => {
       showScreen("progress");
-      loadProgress();
+      loadProgressScreen();
     });
   }
   const reportProgressBtn = $("reportProgressBtn");
   if (reportProgressBtn) {
     reportProgressBtn.addEventListener("click", () => {
       showScreen("progress");
-      loadProgress();
+      loadProgressScreen();
     });
   }
   const exportBtn = $("exportBtn");
@@ -1405,8 +1672,14 @@ function checkOffline() {
   // The live screen normally requires a running session; showing it without
   // one is fine for layout inspection, and the Stop button simply does nothing.
   showScreen(target);
-  if (target === "progress") loadProgress();
+  if (target === "progress") loadProgressScreen();
 })();
+
+const audienceBtn = $("audienceBtn");
+if (audienceBtn) audienceBtn.addEventListener("click", askAudienceQuestion);
+
+const heatmapBox = $("heatmap");
+if (heatmapBox) heatmapBox.addEventListener("click", onHeatmapClick);
 
 initSettings();
 initSession();
