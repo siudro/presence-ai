@@ -1,0 +1,10 @@
+{
+  "_comment": "LLM provider config. Rename/copy this file to llm_config.json to enable AI chat answers.",
+  "_security": "NEVER put a real key in this file. Put the key in the environment variable named by api_key_env.",
+
+  "provider": "openai",
+  "base_url": "https://api.openai.com/v1",
+  "model": "gpt-4o-mini",
+  "api_key_env": "LLM_API_KEY",
+  "timeout": 25
+}

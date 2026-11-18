@@ -1,0 +1,149 @@
+PRESENCE AI — how to run it on your Mac
+=======================================
+
+Three steps. That's it.
+
+
+STEP 1 — Open Terminal and go into the folder
+---------------------------------------------
+If you extracted it to Downloads:
+
+    cd ~/Downloads/presence
+
+(If your folder is somewhere else, type "cd " then drag the folder into the
+Terminal window and press Enter.)
+
+
+STEP 2 — Start it
+-----------------
+    python3 app.py
+
+You should see:
+
+    [presence] PRESENCE AI measuring tool on http://0.0.0.0:8080
+
+Leave this window open. That window IS the website.
+
+
+STEP 3 — Open the page
+----------------------
+In your browser go to:
+
+    http://localhost:8080
+
+IMPORTANT: use that address. Do NOT open index.html from Finder — that gives
+you a file:// address and the microphone and server features will not work.
+
+
+FIRST USE
+---------
+1. Tap the gear icon (top right) to open Settings.
+2. Choose your language.
+3. Paste your Cohere key into the API key box.
+4. Tap Save settings.
+5. Tap Start and speak.
+
+The transcript appears on screen as you talk.
+
+
+ADDING AN AI CHAT KEY (optional)
+--------------------------------
+The app works without this. It changes only where chat answers come from.
+
+Two different keys exist, and they are not the same thing:
+
+  1. Cohere key   -> turns speech into text   (Settings, top section)
+  2. AI chat key  -> answers questions in chat (Settings, second section)
+
+--- To use OpenCode Zen (DeepSeek V4.1 Flash) ---
+
+STEP A. Get your key
+  1. Open https://opencode.ai/console in your browser.
+  2. Sign in (you said you are already registered).
+  3. Find the API keys section and create/copy a key.
+     It usually starts with "sk-".
+  4. Keep it somewhere safe for a moment.
+
+STEP B. Put the key in your Terminal
+  Open Terminal and run (replace with your real key, keep the quotes):
+
+    export OPENCODE_API_KEY="sk-your-key-here"
+
+  IMPORTANT: this only lasts for that one Terminal window. If you close it,
+  run the export again.
+
+STEP C. Tell the app to use OpenCode
+  In the presence folder, copy the OpenCode config into place:
+
+    cp llm_config.opencode.json llm_config.json
+
+STEP D. Start the server in the SAME Terminal window
+    python3 app.py
+
+  If you used a different window, the key is not there and chat will fall
+  back to your own measurements.
+
+--- A warning about the FREE model ---
+
+The model deepseek-v4.1-flash-free is free, but OpenCode's documentation says
+free-tier chat models require OpenCode itself. Called from another app they
+may be refused (HTTP 401 or 403).
+
+If that happens, you have two options:
+
+  a) Use the paid DeepSeek V4.1 Flash instead. It is very cheap
+     ($0.30 per million input tokens). Change one line in llm_config.json:
+
+       "model": "deepseek-v4.1-flash-free"   ->   "model": "deepseek-v4.1-flash"
+
+     You may need a small credit balance on your OpenCode account for that.
+
+  b) Use any other provider (OpenAI, Ollama locally, etc.) by editing
+     llm_config.json: base_url, model, and api_key_env.
+
+--- How to tell it worked ---
+
+Ask the coach a question in the app. Under the chat it will say either:
+
+  "Answered by your configured LLM endpoint."     -> the key works
+  "Answered from your last measurements..."       -> the key did NOT work;
+                                                     send me that line.
+
+Never put the actual key inside llm_config.json. That file stores only the
+NAME of the environment variable, so it is safe to show anyone.
+
+
+STOPPING
+--------
+Press Ctrl + C in the Terminal window.
+
+Closing the Terminal window stops the website too.
+
+
+IF SOMETHING IS WRONG
+---------------------
+"Can't connect" / blank page
+    The server is not running. Do Step 2 again.
+
+"Address already in use"
+    An old server is still running. Find that window, press Ctrl + C.
+
+Microphone blocked
+    Click the padlock in the address bar, set Microphone to Allow, reload.
+
+"No key" / transcription skipped
+    Open Settings, paste the Cohere key, Save.
+
+Page looks old
+    Press Cmd+Shift+R to hard-reload.
+
+
+RUN THE TESTS
+-------------
+In a second Terminal window:
+
+    cd ~/Downloads/presence
+    python3 test_app.py
+    python3 test_features.py
+
+Both should end with "OK".
