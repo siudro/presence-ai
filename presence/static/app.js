@@ -1264,12 +1264,12 @@ function nextGrounding() {
  * a checklist is a private preparation ritual, not data worth uploading.
  */
 const CHECKLIST_ITEMS = [
-  "My opening sentence is memorised",
-  "I have tested my microphone",
-  "I know my first slide",
-  "I have water nearby",
-  "My phone is on silent",
-  "I am standing, shoulders loose",
+  "Opening line known",
+  "Mic tested",
+  "First slide known",
+  "Water nearby",
+  "Phone silent",
+  "Standing, loose",
 ];
 
 const CHECKLIST_KEY = "presence.checklist.v1";
@@ -1339,8 +1339,7 @@ async function loadReminder() {
 
   if (!rows.length) {
     box.textContent =
-      "You have not recorded yet. That is fine — the first recording is the hardest, " +
-      "and it only has to be thirty seconds.";
+      "Record once — thirty seconds is enough.";
     return;
   }
 
@@ -1351,23 +1350,19 @@ async function loadReminder() {
 
   if (inBand >= 3) {
     box.textContent =
-      "Your pace was inside the target band " + inBand + " times. " +
-      "The number you are worried about is one you have already hit.";
+      inBand + " sessions inside the target band. You have hit it before — you will again.";
   } else if (inBand >= 1) {
     box.textContent =
-      "You have already hit the target pace band " + inBand +
-      (inBand === 1 ? " time" : " times") + ". It is not luck — it is in your history.";
+      "You have hit the target pace " + inBand + (inBand === 1 ? " time" : " times") + " already.";
   } else if (fewestFillers === 0) {
     box.textContent =
-      "One of your sessions had no fillers at all. A clean run is not theoretical for you — it has already happened.";
+      "You have had a session with no fillers. A clean run is not theoretical — it happened.";
   } else if (fewestFillers <= 2) {
     box.textContent =
-      "Your best session had only " + fewestFillers +
-      " filler" + (fewestFillers === 1 ? "" : "s") + ". You have already had a clean run.";
+      "Your best session had " + fewestFillers + " filler" + (fewestFillers === 1 ? "" : "s") + " only.";
   } else {
     box.textContent =
-      "You have recorded " + rows.length + " time" + (rows.length === 1 ? "" : "s") +
-      ". Showing up that many times is the part most people never do.";
+      rows.length + " session" + (rows.length === 1 ? "" : "s") + " done. That is the hard part.";
   }
 }
 

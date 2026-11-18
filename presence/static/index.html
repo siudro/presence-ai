@@ -280,61 +280,79 @@
 
   <!-- ============================================ 5. BEFORE THE SPOTLIGHT
 
-       A deliberately different room: cream and sage instead of the practice
-       palette, slower motion, nothing scored. A student arrives here because
-       she is nervous, so this screen must feel like a place to sit down,
-       not another dashboard. -->
+       A calmer room: cream and sage, slower motion, nothing scored.
+       Icon-led by design: a nervous student should not have to read a page
+       to find the next thing to do, so each action is a symbol first and a
+       word second. Every bound id from the previous version is preserved. -->
   <section class="screen calm" id="spotlightScreen" data-screen="spotlight"
            aria-label="Before the spotlight">
-    <div class="spot-eyebrow">Before the spotlight</div>
-    <h1 class="spot-title">Let’s get your<br><em>breath back.</em></h1>
-    <p class="spot-lead">Nothing here is measured. Take as long as you need.</p>
 
-    <div class="spot-steps">
-      <button class="spot-step" id="breatheBtn">
-        <span class="sn">1</span><span class="st">Breathe with me</span><span class="sx">4 · 2 · 6</span>
+    <div class="spot-head">
+      <div class="spot-eyebrow">Before the spotlight</div>
+      <h1 class="spot-title">Breathe.<br><em>You’re ready.</em></h1>
+    </div>
+
+    <!-- Three large symbols, not three rows of text. -->
+    <div class="spot-tiles">
+      <button class="tile" id="breatheBtn" aria-label="Breathe with me">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>
+        </svg>
+        <span>Breathe</span>
+        <small>4 · 2 · 6</small>
       </button>
-      <button class="spot-step" id="groundBtn">
-        <span class="sn">2</span><span class="st">Ground yourself</span><span class="sx">5-4-3-2-1</span>
+
+      <button class="tile" id="groundBtn" aria-label="Ground yourself">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v18M3 12h18M6 6l12 12M18 6L6 18"/>
+        </svg>
+        <span>Ground</span>
+        <small>5-4-3-2-1</small>
       </button>
-      <button class="spot-step" id="confidenceBtn">
-        <span class="sn">3</span><span class="st">Say one sentence</span><span class="sx">2 min</span>
+
+      <button class="tile" id="confidenceBtn" aria-label="Say one sentence">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+          <path d="M5 11v1a7 7 0 0 0 14 0v-1"/>
+        </svg>
+        <span>Say it</span>
+        <small>2 min</small>
       </button>
     </div>
 
-    <!-- Breathing: orb + countdown, replacing the old report-screen card. -->
+    <!-- Breathing -->
     <div class="spot-card" id="breatheCard" hidden>
       <div class="spot-orb" id="spotOrb">
         <div><div class="spot-count" id="spotCount">4</div>
              <div class="spot-phase" id="spotPhase">Breathe in</div></div>
       </div>
-      <p class="spot-note" id="spotBreathNote">Through your nose, slowly.</p>
+      <p class="spot-note" id="spotBreathNote">Through your nose.</p>
       <div class="spot-btns">
         <button class="ghostbtn" id="spotBreatheStart">Start</button>
         <button class="ghostbtn" id="spotBreatheStop" disabled>Stop</button>
       </div>
     </div>
 
-    <!-- Grounding: 5-4-3-2-1, one step at a time, nothing typed. -->
+    <!-- Grounding -->
     <div class="spot-card" id="groundCard" hidden>
       <div class="spot-cardhead">
-        <strong id="groundTitle">Name five things you can see.</strong>
-        <span id="groundStep">STEP 1 OF 5</span>
+        <strong id="groundTitle">Five things you can see.</strong>
+        <span id="groundStep">1 / 5</span>
       </div>
       <div class="spot-dots" id="groundDots"></div>
-      <p class="spot-note" id="groundHint">Look around the room. The desk. The window. Your own hand.</p>
+      <p class="spot-note" id="groundHint">Look around the room.</p>
       <div class="spot-btns">
         <button class="ghostbtn" id="groundNext">Next</button>
         <button class="ghostbtn" id="groundDone">Done</button>
       </div>
     </div>
 
-    <!-- Confidence session: breathe, then say your opening sentence. -->
+    <!-- Confidence session -->
     <div class="spot-card" id="confidenceCard" hidden>
       <div class="spot-cardhead"><strong>Two-minute reset</strong><span id="confStage">Ready</span></div>
-      <p class="spot-note" id="confText">One round of breathing, then your opening sentence out loud. Measured, never scored.</p>
+      <p class="spot-note" id="confText">Breathe once, then say your opening line.</p>
       <div class="spot-btns">
-        <input id="openingInput" type="text" placeholder="Type your first sentence (optional)">
+        <input id="openingInput" type="text" placeholder="Your first sentence (optional)">
       </div>
       <div class="spot-btns">
         <button class="ghostbtn" id="confStart">Begin</button>
@@ -342,19 +360,22 @@
       </div>
     </div>
 
-    <!-- Checklist: ticked by the student, stored on this device only. -->
+    <!-- Checklist: icon rows, label only. -->
     <div class="spot-card">
       <div class="spot-cardhead">
-        <strong>Ready-to-speak checklist</strong>
-        <span id="checkCount">0 of 6</span>
+        <strong>Ready?</strong>
+        <span id="checkCount">0 / 6</span>
       </div>
       <div class="spot-checklist" id="spotChecklist"></div>
     </div>
 
-    <!-- Reminders: generated from real session history, or honest silence. -->
+    <!-- Reminder -->
     <div class="spot-card reminder">
-      <div class="spot-cardhead"><strong>Reminder for you</strong><span>FROM YOUR PROGRESS</span></div>
-      <p class="spot-note" id="spotReminder">Record a session and a reminder will appear here.</p>
+      <div class="spot-cardhead">
+        <strong>Remember</strong>
+        <span>FROM YOUR PROGRESS</span>
+      </div>
+      <p class="spot-note" id="spotReminder">Record once, and a reminder appears here.</p>
     </div>
 
     <div class="endbtns">

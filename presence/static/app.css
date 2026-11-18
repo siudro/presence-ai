@@ -1238,97 +1238,94 @@ body {
 .miccheck-btn { margin-top: 10px; padding: 11px; font-size: 13px; }
 
 /* ==========================================================================
-   BEFORE THE SPOTLIGHT — a calmer room
-   Cream and sage instead of the practice terracotta. No red anywhere: red is
-   the colour of an error, and this screen is where a nervous student goes to
-   feel better. Sizes are phone-first; nothing here exceeds a thumb's reach.
+   BEFORE THE SPOTLIGHT — icon-led and softer
+   Cream and sage, generous rounding, no red anywhere. Actions are symbols
+   first and words second: a nervous student should find the next thing to
+   do without reading a paragraph.
    ========================================================================== */
 
 .screen.calm {
-  background: linear-gradient(180deg, #f7f5ef 0%, #f3f1ea 100%);
-  border-radius: 18px;
-  padding: 22px 18px 18px;
+  background: linear-gradient(180deg, #f8f6f0 0%, #f2f0e8 100%);
+  border-radius: 22px;
+  padding: 24px 18px 20px;
   margin: -6px -4px 0;
 }
 
+.spot-head { margin-bottom: 20px; }
+
 .spot-eyebrow {
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 800;
-  letter-spacing: .14em;
+  letter-spacing: .16em;
   text-transform: uppercase;
-  color: #3f7d68;
+  color: #6f9c8b;
 }
 
 .spot-title {
   font-family: "Fraunces", Georgia, serif;
-  font-size: clamp(26px, 8vw, 31px);
+  font-size: clamp(30px, 9.5vw, 38px);
   font-weight: 600;
-  line-height: 1.14;
-  letter-spacing: -.6px;
-  margin-top: 8px;
-  color: #253029;
+  line-height: 1.04;
+  letter-spacing: -.9px;
+  margin-top: 9px;
+  color: #24302a;
 }
 
 .spot-title em { font-style: italic; color: #3f7d68; }
 
-.spot-lead {
-  font-size: 13px;
-  color: #5d6b64;
-  margin-top: 8px;
-  line-height: 1.55;
-}
-
-/* The three doors: breathe, ground, say one sentence. */
-.spot-steps { display: grid; gap: 8px; margin-top: 18px; }
-
-.spot-step {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  width: 100%;
-  background: #fff;
-  border: 1px solid #e2e9e5;
-  border-radius: 14px;
-  padding: 13px 14px;
-  font-family: inherit;
-  font-size: 13px;
-  color: #33413c;
-  text-align: left;
-  cursor: pointer;
-  transition: border-color .16s ease, transform .12s ease;
-}
-
-.spot-step:hover { border-color: #c4d4cd; transform: translateY(-1px); }
-.spot-step:active { transform: none; }
-
-.spot-step .sn {
-  width: 22px; height: 22px;
-  border-radius: 50%;
-  background: #e3efe9;
-  color: #3f7d68;
+/* Three big symbols. Square-ish, soft, thumb-sized. */
+.spot-tiles {
   display: grid;
-  place-items: center;
-  font-size: 11px;
-  font-weight: 800;
-  flex: none;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
 }
 
-.spot-step .st { font-weight: 600; min-width: 0; }
-.spot-step .sx {
-  margin-left: auto;
-  font-size: 10.5px;
-  color: #8a9a93;
-  font-weight: 600;
-  flex: none;
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #e6ece8;
+  border-radius: 22px;
+  padding: 18px 8px 15px;
+  font-family: inherit;
+  color: #33413c;
+  cursor: pointer;
+  min-height: 116px;
+  transition: border-color .18s ease, transform .16s ease, box-shadow .18s ease;
+  box-shadow: 0 2px 0 rgba(63, 125, 104, .04);
 }
+
+.tile:hover {
+  border-color: #c9ddd4;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -14px rgba(63, 125, 104, .5);
+}
+
+.tile:active { transform: none; }
+
+.tile svg {
+  width: 30px;
+  height: 30px;
+  stroke: #3f7d68;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tile span { font-size: 12.5px; font-weight: 700; letter-spacing: -.1px; }
+.tile small { font-size: 9.5px; color: #93a59d; font-weight: 600; letter-spacing: .02em; }
 
 /* Cards */
 .spot-card {
   background: #fff;
-  border: 1px solid #e2e9e5;
-  border-radius: 16px;
+  border: 1px solid #e6ece8;
+  border-radius: 20px;
   padding: 15px;
-  margin-top: 14px;
+  margin-top: 12px;
 }
 
 .spot-cardhead {
@@ -1340,62 +1337,61 @@ body {
   margin-bottom: 10px;
 }
 
-.spot-cardhead strong { font-size: 12.5px; color: #253029; }
+.spot-cardhead strong { font-size: 12.5px; color: #24302a; }
 .spot-cardhead span {
-  font-size: 9px;
+  font-size: 8.5px;
   letter-spacing: .1em;
   text-transform: uppercase;
-  color: #8a9a93;
+  color: #93a59d;
   font-weight: 700;
 }
 
-.spot-note { font-size: 12px; line-height: 1.55; color: #4c5b55; margin: 0; }
-.spot-btns { display: flex; gap: 8px; margin-top: 12px; }
-.spot-btns .ghostbtn { flex: 1; padding: 11px; font-size: 13px; }
+.spot-note { font-size: 12px; line-height: 1.5; color: #4c5b55; margin: 0; }
+.spot-btns { display: flex; gap: 8px; margin-top: 11px; }
+.spot-btns .ghostbtn { flex: 1; padding: 11px; font-size: 12.5px; border-radius: 13px; }
 
 .spot-btns input {
   flex: 1;
   min-width: 0;
   font: inherit;
   font-size: 16px;
-  padding: 11px 13px;
-  border: 1.5px solid #dbe5e0;
-  border-radius: 12px;
+  padding: 10px 13px;
+  border: 1.5px solid #e0e8e3;
+  border-radius: 13px;
   background: #fbfcfa;
-  color: #253029;
+  color: #24302a;
 }
 
-.spot-btns input:focus { outline: 2px solid rgba(63, 125, 104, .3); border-color: #3f7d68; }
+.spot-btns input:focus { outline: 2px solid rgba(63, 125, 104, .28); border-color: #3f7d68; }
 
 /* Breathing orb */
 .spot-orb {
-  width: min(160px, 46vw);
-  height: min(160px, 46vw);
-  margin: 8px auto 0;
+  width: min(168px, 48vw);
+  height: min(168px, 48vw);
+  margin: 6px auto 0;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: radial-gradient(circle at 38% 32%, #c9e9dc, #8fc9b2 55%, #6fb39a);
-  box-shadow: 0 16px 34px -16px rgba(63, 125, 104, .55);
-  transition: transform 1s ease;
+  background: radial-gradient(circle at 38% 32%, #cdeade, #93cbb6 55%, #74b79e);
+  box-shadow: 0 18px 38px -18px rgba(63, 125, 104, .55);
+  transition: transform 1.1s cubic-bezier(.4, 0, .5, 1);
 }
 
-/* The scale IS the instruction: growing means breathe in. */
-.spot-orb.inhale { transform: scale(1.1); }
-.spot-orb.exhale { transform: scale(.92); }
+.spot-orb.inhale { transform: scale(1.11); }
+.spot-orb.exhale { transform: scale(.9); }
 
 .spot-count {
   font-family: "Fraunces", Georgia, serif;
-  font-size: 40px;
+  font-size: 42px;
   font-weight: 900;
-  color: #19453a;
+  color: #17443a;
   line-height: 1;
   text-align: center;
 }
 
 .spot-phase {
-  font-size: 9.5px;
-  letter-spacing: .14em;
+  font-size: 9px;
+  letter-spacing: .16em;
   text-transform: uppercase;
   color: #2c6152;
   font-weight: 800;
@@ -1405,41 +1401,37 @@ body {
 
 /* Grounding dots */
 .spot-dots { display: flex; gap: 6px; margin-bottom: 10px; }
-
-.spot-dots i {
-  flex: 1;
-  height: 6px;
-  border-radius: 4px;
-  background: #e6ece9;
-}
-
+.spot-dots i { flex: 1; height: 6px; border-radius: 4px; background: #e8eeea; }
 .spot-dots i.on { background: #3f7d68; }
 
-/* Checklist */
-.spot-checklist { display: grid; gap: 7px; }
+/* Checklist: icon + word only */
+.spot-checklist { display: grid; gap: 4px; }
 
 .spot-check {
   display: flex;
-  gap: 9px;
-  align-items: flex-start;
+  gap: 10px;
+  align-items: center;
   font-size: 12.5px;
-  line-height: 1.45;
+  line-height: 1.3;
   color: #3f4d47;
   background: none;
   border: 0;
-  padding: 0;
+  padding: 9px 2px;
   font-family: inherit;
   text-align: left;
   cursor: pointer;
   width: 100%;
+  border-radius: 10px;
+  transition: background .14s ease;
 }
 
+.spot-check:hover { background: #f7faf8; }
+
 .spot-check .box {
-  width: 16px; height: 16px;
-  border-radius: 4px;
-  border: 1.6px solid #c4d4cd;
+  width: 19px; height: 19px;
+  border-radius: 7px;
+  border: 1.6px solid #cfdcd6;
   flex: none;
-  margin-top: 1px;
   position: relative;
   transition: background .16s ease, border-color .16s ease;
 }
@@ -1456,24 +1448,27 @@ body {
   place-items: center;
 }
 
-.spot-card.reminder { background: #eaf3ef; border-color: #cfe0d8; }
+.spot-check.done { color: #93a59d; }
 
-/* Home entry point — visually distinct so it reads as a different room. */
+.spot-card.reminder { background: #eef5f1; border-color: #d8e6df; }
+
+/* Home entry point */
 .spotlink {
-  border-color: #cfe0d8;
+  border-color: #d8e6df;
   color: #3f7d68;
   margin-bottom: 10px;
 }
 
 .spotlink:hover { border-color: #3f7d68; color: #3f7d68; }
 
-@media (max-width: 380px) {
-  .screen.calm { padding: 18px 14px 14px; }
-  .spot-step { padding: 11px 12px; font-size: 12.5px; }
-  .spot-card { padding: 13px; }
+@media (max-width: 360px) {
+  .spot-tiles { gap: 8px; }
+  .tile { min-height: 104px; padding: 15px 5px 12px; border-radius: 18px; }
+  .tile svg { width: 26px; height: 26px; }
+  .tile span { font-size: 11.5px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .spot-orb { transition: none; }
-  .spot-step:hover { transform: none; }
+  .tile:hover { transform: none; }
 }

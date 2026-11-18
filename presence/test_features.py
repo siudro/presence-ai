@@ -1206,6 +1206,29 @@ class TestBeforeTheSpotlight(unittest.TestCase):
         self.assertNotIn("var(--bad)", block)
         self.assertNotIn("var(--accent-soft)", block)
 
+    def test_spotlight_is_icon_led_not_text_led(self):
+        """
+        The student asked for fewer words and more icons. Each of the three
+        actions must be a symbol first, with a short label beneath.
+        """
+        import re
+        start = self.html.index('id="spotlightScreen"')
+        end = self.html.index("</section>", start)
+        block = self.html[start:end]
+        # Three tiles, each containing an inline svg.
+        self.assertIn('class="spot-tiles"', block)
+        self.assertEqual(block.count('class="tile"'), 3)
+        self.assertEqual(block.count("<svg"), 3)
+
+    def test_spotlight_copy_is_short(self):
+        """113 words was the complaint; the section must stay terse."""
+        import re
+        start = self.html.index('id="spotlightScreen"')
+        end = self.html.index("</section>", start)
+        text = re.sub(r"<[^>]+>", " ", self.html[start:end])
+        words = [w for w in text.split() if w.strip()]
+        self.assertLess(len(words), 90, f"spotlight has {len(words)} words")
+
     def test_spotlight_fits_a_phone(self):
         start = self.css.index(".screen.calm")
         block = self.css[start:start + 300]
