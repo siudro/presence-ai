@@ -959,7 +959,7 @@ window.presenceAdapter = {
 
 /* ================================================================ the view */
 
-const SCREENS = ["readyScreen", "liveScreen", "reportScreen", "progressScreen"];
+const SCREENS = ["readyScreen", "liveScreen", "reportScreen", "progressScreen", "spotlightScreen"];
 
 /* ======================================================== heatmap + more */
 
@@ -1184,6 +1184,275 @@ async function loadRoadmap() {
   } catch (err) {
     if (note) note.textContent = "The plan needs the local server.";
     box.innerHTML = "";
+  }
+}
+
+/* ==================================================== before the spotlight */
+
+/*
+ * A calmer room: grounding, a checklist, reminders from real history, and a
+ * two-minute reset.
+ *
+ * Nothing on this screen is scored, and nothing here invents data. The
+ * reminder reads the student's own sessions; with none, it says so.
+ */
+
+/* ---- 5-4-3-2-1 grounding ------------------------------------------------ */
+
+/*
+ * Five authored steps, one at a time. The student does this quietly in their
+ * head — nothing is typed and nothing is uploaded, because the point is to
+ * notice the room, not to perform for a text field.
+ */
+const GROUND_STEPS = [
+  { n: 5, sense: "see",   hint: "Look around the room. The desk. The window. Your own hand." },
+  { n: 4, sense: "feel",  hint: "Your feet on the floor. The chair. The fabric of your sleeve." },
+  { n: 3, sense: "hear",  hint: "Something near, something far, and your own breathing." },
+  { n: 2, sense: "smell", hint: "Anything at all — or two things you remember the smell of." },
+  { n: 1, sense: "taste", hint: "One thing. Or just notice your mouth is dry, and that is normal." },
+];
+
+const WORD_NUMBERS = ["zero", "one", "two", "three", "four", "five"];
+let groundIndex = 0;
+
+function renderGrounding() {
+  const title = $("groundTitle");
+  const step = $("groundStep");
+  const hint = $("groundHint");
+  const dots = $("groundDots");
+  const next = $("groundNext");
+  if (!title) return;
+
+  const s = GROUND_STEPS[groundIndex];
+  title.textContent = "Name " + WORD_NUMBERS[s.n] + " things you can " + s.sense + ".";
+  if (step) step.textContent = "STEP " + (groundIndex + 1) + " OF " + GROUND_STEPS.length;
+  if (hint) hint.textContent = s.hint;
+  if (dots) {
+    dots.innerHTML = GROUND_STEPS.map(
+      (_, i) => '<i class="' + (i <= groundIndex ? "on" : "") + '"></i>'
+    ).join("");
+  }
+  if (next) next.textContent = groundIndex === GROUND_STEPS.length - 1 ? "Finish" : "Next";
+}
+
+function startGrounding() {
+  groundIndex = 0;
+  const card = $("groundCard");
+  if (card) card.hidden = false;
+  const other = $("breatheCard");
+  if (other) other.hidden = true;
+  const conf = $("confidenceCard");
+  if (conf) conf.hidden = true;
+  renderGrounding();
+}
+
+function nextGrounding() {
+  if (groundIndex < GROUND_STEPS.length - 1) {
+    groundIndex += 1;
+    renderGrounding();
+  } else {
+    const card = $("groundCard");
+    if (card) card.hidden = true;
+    toast("Well done. You are here, not in your head.");
+  }
+}
+
+/* ---- Ready-to-speak checklist ------------------------------------------ */
+
+/*
+ * Six items the student ticks. Stored in localStorage on THIS device only —
+ * a checklist is a private preparation ritual, not data worth uploading.
+ */
+const CHECKLIST_ITEMS = [
+  "My opening sentence is memorised",
+  "I have tested my microphone",
+  "I know my first slide",
+  "I have water nearby",
+  "My phone is on silent",
+  "I am standing, shoulders loose",
+];
+
+const CHECKLIST_KEY = "presence.checklist.v1";
+
+function readChecklist() {
+  try {
+    return JSON.parse(localStorage.getItem(CHECKLIST_KEY) || "[]");
+  } catch (err) {
+    return [];
+  }
+}
+
+function writeChecklist(state) {
+  try {
+    localStorage.setItem(CHECKLIST_KEY, JSON.stringify(state));
+  } catch (err) {
+    // Private browsing can refuse storage; the checklist still works this session.
+  }
+}
+
+function renderChecklist() {
+  const box = $("spotChecklist");
+  const count = $("checkCount");
+  if (!box) return;
+  const state = readChecklist();
+
+  box.innerHTML = CHECKLIST_ITEMS.map((label, i) => {
+    const done = state[i] ? " done" : "";
+    return '<button class="spot-check' + done + '" data-i="' + i + '">' +
+           '<span class="box"></span><span>' + escapeHtml(label) + "</span></button>";
+  }).join("");
+
+  if (count) {
+    const done = state.filter(Boolean).length;
+    count.textContent = done + " of " + CHECKLIST_ITEMS.length;
+  }
+}
+
+function toggleChecklistItem(index) {
+  const state = readChecklist();
+  while (state.length < CHECKLIST_ITEMS.length) state.push(false);
+  state[index] = !state[index];
+  writeChecklist(state);
+  renderChecklist();
+}
+
+/* ---- Confidence reminders from real history ---------------------------- */
+
+/**
+ * One true sentence about the student's own sessions.
+ *
+ * Every branch reads measured data. With no history it says something honest
+ * and general rather than inventing a statistic — "you improved 20%" with no
+ * sessions behind it would be a lie a judge could catch.
+ */
+async function loadReminder() {
+  const box = $("spotReminder");
+  if (!box) return;
+
+  let rows = [];
+  try {
+    const res = await fetch("/api/history");
+    if (res.ok) rows = (await res.json()).sessions || [];
+  } catch (err) {
+    rows = [];
+  }
+
+  if (!rows.length) {
+    box.textContent =
+      "You have not recorded yet. That is fine — the first recording is the hardest, " +
+      "and it only has to be thirty seconds.";
+    return;
+  }
+
+  const inBand = rows.filter(
+    (r) => r.wpm >= 110 && r.wpm <= 135
+  ).length;
+  const fewestFillers = Math.min(...rows.map((r) => r.filler_total || 0));
+
+  if (inBand >= 3) {
+    box.textContent =
+      "Your pace was inside the target band " + inBand + " times. " +
+      "The number you are worried about is one you have already hit.";
+  } else if (inBand >= 1) {
+    box.textContent =
+      "You have already hit the target pace band " + inBand +
+      (inBand === 1 ? " time" : " times") + ". It is not luck — it is in your history.";
+  } else if (fewestFillers === 0) {
+    box.textContent =
+      "One of your sessions had no fillers at all. A clean run is not theoretical for you — it has already happened.";
+  } else if (fewestFillers <= 2) {
+    box.textContent =
+      "Your best session had only " + fewestFillers +
+      " filler" + (fewestFillers === 1 ? "" : "s") + ". You have already had a clean run.";
+  } else {
+    box.textContent =
+      "You have recorded " + rows.length + " time" + (rows.length === 1 ? "" : "s") +
+      ". Showing up that many times is the part most people never do.";
+  }
+}
+
+/* ---- Two-minute confidence session ------------------------------------- */
+
+/*
+ * One breathing round, then the opening sentence out loud.
+ *
+ * Deliberately NOT scored. The question a nervous student is asking is "does
+ * my voice still work", not "am I good enough", and a score would answer the
+ * wrong one.
+ */
+let confTimer = null;
+let confStageIndex = 0;
+
+const CONF_STAGES = [
+  { label: "Breathe in", seconds: 4, text: "Through your nose. Nothing else is needed this second." },
+  { label: "Hold", seconds: 2, text: "Just hold it." },
+  { label: "Breathe out", seconds: 6, text: "Slower than you breathed in. Shoulders down." },
+  { label: "Say your line", seconds: 12, text: "Out loud, at your own pace. You already know it." },
+];
+
+let confTicks = 0;
+
+function startConfidence() {
+  confStageIndex = 0;
+  confTicks = 0;
+  const card = $("confidenceCard");
+  if (card) card.hidden = false;
+  const breathe = $("breatheCard");
+  if (breathe) breathe.hidden = true;
+  const ground = $("groundCard");
+  if (ground) ground.hidden = true;
+
+  const startBtn = $("confStart");
+  const stopBtn = $("confStop");
+  if (startBtn) startBtn.disabled = true;
+  if (stopBtn) stopBtn.disabled = false;
+
+  renderConfStage();
+  confTimer = setInterval(tickConfidence, 1000);
+}
+
+function renderConfStage() {
+  const stage = $("confStage");
+  const text = $("confText");
+  const s = CONF_STAGES[confStageIndex];
+  if (stage) stage.textContent = s.label + " · " + Math.max(1, s.seconds - confTicks);
+  if (text) {
+    const opening = ($("openingInput") || {}).value;
+    text.textContent = confStageIndex === 3 && opening
+      ? "Say: “" + opening + "”"
+      : s.text;
+  }
+}
+
+function tickConfidence() {
+  const s = CONF_STAGES[confStageIndex];
+  confTicks += 1;
+  if (confTicks >= s.seconds) {
+    confTicks = 0;
+    confStageIndex += 1;
+    if (confStageIndex >= CONF_STAGES.length) {
+      stopConfidence(true);
+      return;
+    }
+  }
+  renderConfStage();
+}
+
+function stopConfidence(finished) {
+  if (confTimer) { clearInterval(confTimer); confTimer = null; }
+  const startBtn = $("confStart");
+  const stopBtn = $("confStop");
+  if (startBtn) startBtn.disabled = false;
+  if (stopBtn) stopBtn.disabled = true;
+
+  if (finished) {
+    const stage = $("confStage");
+    const text = $("confText");
+    if (stage) stage.textContent = "Done";
+    if (text) text.textContent = "You have said it once. That is the hard part finished.";
+  } else {
+    const card = $("confidenceCard");
+    if (card) card.hidden = true;
   }
 }
 
@@ -1851,13 +2120,15 @@ function checkOffline() {
 // Two reasons this is useful to keep: it lets a student or judge link straight
 // to a screen, and it lets the layout be checked without a microphone.
 (function openFromHash() {
-  const map = { "#live": "live", "#report": "report", "#progress": "progress" };
+  const map = { "#live": "live", "#report": "report", "#progress": "progress",
+                "#spotlight": "spotlight" };
   const target = map[location.hash];
   if (!target) return;
   // The live screen normally requires a running session; showing it without
   // one is fine for layout inspection, and the Stop button simply does nothing.
   showScreen(target);
   if (target === "progress") loadProgressScreen();
+  if (target === "spotlight") openSpotlight();
 })();
 
 buildMeterBars();
@@ -1868,6 +2139,155 @@ if (micCheckBtn) micCheckBtn.addEventListener("click", runMicCheck);
 
 const audienceBtn = $("audienceBtn");
 if (audienceBtn) audienceBtn.addEventListener("click", askAudienceQuestion);
+
+/* --------------------------------------------------- spotlight wiring */
+
+function openSpotlight() {
+  showScreen("spotlight");
+  renderChecklist();
+  loadReminder();
+}
+
+const spotlightBtn = $("spotlightBtn");
+if (spotlightBtn) spotlightBtn.addEventListener("click", openSpotlight);
+
+const spotBackBtn = $("spotBackBtn");
+if (spotBackBtn) spotBackBtn.addEventListener("click", () => showScreen("ready"));
+
+const breatheBtn = $("breatheBtn");
+if (breatheBtn) {
+  breatheBtn.addEventListener("click", () => {
+    // Reuse the proven breathing engine; it already speaks the cues.
+    const card = $("breatheCard");
+    if (card) card.hidden = false;
+    const g = $("groundCard"); if (g) g.hidden = true;
+    const c = $("confidenceCard"); if (c) c.hidden = true;
+  });
+}
+
+const spotBreatheStart = $("spotBreatheStart");
+if (spotBreatheStart) {
+  spotBreatheStart.addEventListener("click", () => {
+    spotBreatheStart.disabled = true;
+    const stopBtn = $("spotBreatheStop");
+    if (stopBtn) stopBtn.disabled = false;
+    startSpotBreathing();
+  });
+}
+
+const spotBreatheStop = $("spotBreatheStop");
+if (spotBreatheStop) {
+  spotBreatheStop.addEventListener("click", () => {
+    stopSpotBreathing();
+    spotBreatheStart.disabled = false;
+    spotBreatheStop.disabled = true;
+  });
+}
+
+/*
+ * The spotlight runs its own instance of the SAME authored cycle
+ * (CALM_STEPS), rather than driving the report screen's engine — that one is
+ * bound to report-screen elements and would show nothing here.
+ *
+ * The orb's scale is the instruction: growing means breathe in. It is driven
+ * from the same clock as the countdown, so the circle and the number can
+ * never disagree.
+ */
+let spotBreathTimer = null;
+let spotStep = 0;
+let spotTicks = 0;
+let spotRound = 0;
+
+function renderSpotBreath() {
+  const orb = $("spotOrb");
+  const count = $("spotCount");
+  const phase = $("spotPhase");
+  const note = $("spotBreathNote");
+  if (!orb) return;
+
+  if (spotRound >= CALM_ROUNDS) {
+    if (count) count.textContent = "✓";
+    if (phase) phase.textContent = "Done";
+    if (note) note.textContent = "Your body has slowed down. Say your first sentence out loud.";
+    stopSpotBreathing();
+    const startBtn = $("spotBreatheStart");
+    const stopBtn = $("spotBreatheStop");
+    if (startBtn) startBtn.disabled = false;
+    if (stopBtn) stopBtn.disabled = true;
+    return;
+  }
+
+  const step = CALM_STEPS[spotStep];
+  const left = Math.max(1, step.seconds - spotTicks);
+  if (count) count.textContent = left;
+  if (phase) phase.textContent = step.phase;
+  if (note) note.textContent = step.text;
+
+  orb.classList.toggle("inhale", step.phase === "Breathe in");
+  orb.classList.toggle("exhale", step.phase === "Breathe out");
+  if (step.phase === "Hold") orb.classList.remove("inhale", "exhale");
+}
+
+function startSpotBreathing() {
+  spotStep = 0;
+  spotTicks = 0;
+  spotRound = 0;
+  renderSpotBreath();
+  if (spotBreathTimer) clearInterval(spotBreathTimer);
+  spotBreathTimer = setInterval(() => {
+    const step = CALM_STEPS[spotStep];
+    spotTicks += 1;
+    if (spotTicks >= step.seconds) {
+      spotTicks = 0;
+      spotStep += 1;
+      if (spotStep >= CALM_STEPS.length) { spotStep = 0; spotRound += 1; }
+    }
+    renderSpotBreath();
+  }, 1000);
+}
+
+function stopSpotBreathing() {
+  if (spotBreathTimer) { clearInterval(spotBreathTimer); spotBreathTimer = null; }
+  const orb = $("spotOrb");
+  if (orb) orb.classList.remove("inhale", "exhale");
+}
+
+const groundBtn = $("groundBtn");
+if (groundBtn) groundBtn.addEventListener("click", startGrounding);
+
+const groundNext = $("groundNext");
+if (groundNext) groundNext.addEventListener("click", nextGrounding);
+
+const groundDone = $("groundDone");
+if (groundDone) {
+  groundDone.addEventListener("click", () => {
+    const card = $("groundCard");
+    if (card) card.hidden = true;
+  });
+}
+
+const spotChecklist = $("spotChecklist");
+if (spotChecklist) {
+  spotChecklist.addEventListener("click", (event) => {
+    const btn = event.target.closest(".spot-check");
+    if (!btn) return;
+    toggleChecklistItem(Number(btn.dataset.i));
+  });
+}
+
+const confidenceBtn = $("confidenceBtn");
+if (confidenceBtn) confidenceBtn.addEventListener("click", () => {
+  const card = $("confidenceCard");
+  if (card) card.hidden = false;
+  const b = $("breatheCard"); if (b) b.hidden = true;
+  const g = $("groundCard"); if (g) g.hidden = true;
+});
+
+const confStart = $("confStart");
+if (confStart) confStart.addEventListener("click", startConfidence);
+
+const confStop = $("confStop");
+if (confStop) confStop.addEventListener("click", () => stopConfidence(false));
 
 const heatmapBox = $("heatmap");
 if (heatmapBox) heatmapBox.addEventListener("click", onHeatmapClick);

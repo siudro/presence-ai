@@ -1126,6 +1126,92 @@ class TestLongSessionCapacity(unittest.TestCase):
         self.assertEqual(len(session.timeline), 30)
 
 
+class TestBeforeTheSpotlight(unittest.TestCase):
+    """
+    The calm section. Every assertion guards either a real capability or an
+    honesty rule — that nothing here is scored, and that reminders come from
+    measured history rather than invention.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(HERE, "static", "index.html"), encoding="utf-8") as fh:
+            cls.html = fh.read()
+        with open(os.path.join(HERE, "static", "app.js"), encoding="utf-8") as fh:
+            cls.js = fh.read()
+        with open(os.path.join(HERE, "static", "app.css"), encoding="utf-8") as fh:
+            cls.css = fh.read()
+
+    def test_screen_exists_and_is_reachable(self):
+        self.assertIn('id="spotlightScreen"', self.html)
+        self.assertIn('id="spotlightBtn"', self.html)
+        self.assertIn("openSpotlight", self.js)
+
+    def test_grounding_has_five_ordered_steps(self):
+        start = self.js.index("const GROUND_STEPS")
+        block = self.js[start:self.js.index("const WORD_NUMBERS")]
+        for n in ("n: 5", "n: 4", "n: 3", "n: 2", "n: 1"):
+            self.assertIn(n, block)
+        for sense in ("see", "feel", "hear", "smell", "taste"):
+            self.assertIn(sense, block)
+
+    def test_checklist_is_device_local(self):
+        """A preparation ritual is private; it must not be uploaded."""
+        start = self.js.index("const CHECKLIST_ITEMS")
+        block = self.js[start:self.js.index("const CHECKLIST_KEY")]
+        self.assertEqual(len([x for x in block.split("\n") if x.strip().startswith('"')]), 6)
+        self.assertIn("localStorage", self.js)
+        self.assertNotIn("fetch(", block)
+
+    def test_reminder_uses_real_history(self):
+        start = self.js.index("async function loadReminder")
+        block = self.js[start:self.js.index("/* ---- Two-minute confidence session")]
+        self.assertIn("/api/history", block)
+
+    def test_reminder_never_invents_without_history(self):
+        start = self.js.index("async function loadReminder")
+        block = self.js[start:self.js.index("/* ---- Two-minute confidence session")]
+        self.assertIn("if (!rows.length)", block)
+
+    def test_nothing_here_is_scored(self):
+        """
+        The calm section must not show a score. A student arrives here anxious;
+        grading her would answer the wrong question.
+        """
+        import re
+        start = self.html.index('id="spotlightScreen"')
+        end = self.html.index("</section>", start)
+        block = self.html[start:end]
+
+        # The disclaimer "measured, never scored" is the opposite of a
+        # violation, so strip that phrase before checking.
+        cleaned = block.lower().replace("never scored", "")
+        for banned in ("score", "grade", "%"):
+            self.assertNotIn(banned, cleaned)
+
+        # And there must be no score OUTPUT element in this section.
+        self.assertNotIn('id="overallScore"', block)
+        self.assertNotIn('id="scoreArc"', block)
+
+    def test_breathing_uses_the_authored_cycle(self):
+        start = self.js.index("let spotBreathTimer")
+        block = self.js[start:self.js.index("const groundBtn")]
+        self.assertIn("CALM_STEPS", block)
+        self.assertIn("CALM_ROUNDS", block)
+
+    def test_calm_section_uses_no_alarm_colour(self):
+        """Red means error; this room must never signal one."""
+        start = self.css.index("BEFORE THE SPOTLIGHT")
+        block = self.css[start:]
+        self.assertNotIn("var(--bad)", block)
+        self.assertNotIn("var(--accent-soft)", block)
+
+    def test_spotlight_fits_a_phone(self):
+        start = self.css.index(".screen.calm")
+        block = self.css[start:start + 300]
+        self.assertIn("border-radius", block)
+
+
 class TestArabicCounting(unittest.TestCase):
     """
     Arabic is one of the three target profiles, so counting it wrongly is a

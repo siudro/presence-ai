@@ -1236,3 +1236,244 @@ body {
 }
 
 .miccheck-btn { margin-top: 10px; padding: 11px; font-size: 13px; }
+
+/* ==========================================================================
+   BEFORE THE SPOTLIGHT — a calmer room
+   Cream and sage instead of the practice terracotta. No red anywhere: red is
+   the colour of an error, and this screen is where a nervous student goes to
+   feel better. Sizes are phone-first; nothing here exceeds a thumb's reach.
+   ========================================================================== */
+
+.screen.calm {
+  background: linear-gradient(180deg, #f7f5ef 0%, #f3f1ea 100%);
+  border-radius: 18px;
+  padding: 22px 18px 18px;
+  margin: -6px -4px 0;
+}
+
+.spot-eyebrow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #3f7d68;
+}
+
+.spot-title {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(26px, 8vw, 31px);
+  font-weight: 600;
+  line-height: 1.14;
+  letter-spacing: -.6px;
+  margin-top: 8px;
+  color: #253029;
+}
+
+.spot-title em { font-style: italic; color: #3f7d68; }
+
+.spot-lead {
+  font-size: 13px;
+  color: #5d6b64;
+  margin-top: 8px;
+  line-height: 1.55;
+}
+
+/* The three doors: breathe, ground, say one sentence. */
+.spot-steps { display: grid; gap: 8px; margin-top: 18px; }
+
+.spot-step {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  background: #fff;
+  border: 1px solid #e2e9e5;
+  border-radius: 14px;
+  padding: 13px 14px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #33413c;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, transform .12s ease;
+}
+
+.spot-step:hover { border-color: #c4d4cd; transform: translateY(-1px); }
+.spot-step:active { transform: none; }
+
+.spot-step .sn {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  background: #e3efe9;
+  color: #3f7d68;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex: none;
+}
+
+.spot-step .st { font-weight: 600; min-width: 0; }
+.spot-step .sx {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: #8a9a93;
+  font-weight: 600;
+  flex: none;
+}
+
+/* Cards */
+.spot-card {
+  background: #fff;
+  border: 1px solid #e2e9e5;
+  border-radius: 16px;
+  padding: 15px;
+  margin-top: 14px;
+}
+
+.spot-cardhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.spot-cardhead strong { font-size: 12.5px; color: #253029; }
+.spot-cardhead span {
+  font-size: 9px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: #8a9a93;
+  font-weight: 700;
+}
+
+.spot-note { font-size: 12px; line-height: 1.55; color: #4c5b55; margin: 0; }
+.spot-btns { display: flex; gap: 8px; margin-top: 12px; }
+.spot-btns .ghostbtn { flex: 1; padding: 11px; font-size: 13px; }
+
+.spot-btns input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 16px;
+  padding: 11px 13px;
+  border: 1.5px solid #dbe5e0;
+  border-radius: 12px;
+  background: #fbfcfa;
+  color: #253029;
+}
+
+.spot-btns input:focus { outline: 2px solid rgba(63, 125, 104, .3); border-color: #3f7d68; }
+
+/* Breathing orb */
+.spot-orb {
+  width: min(160px, 46vw);
+  height: min(160px, 46vw);
+  margin: 8px auto 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 38% 32%, #c9e9dc, #8fc9b2 55%, #6fb39a);
+  box-shadow: 0 16px 34px -16px rgba(63, 125, 104, .55);
+  transition: transform 1s ease;
+}
+
+/* The scale IS the instruction: growing means breathe in. */
+.spot-orb.inhale { transform: scale(1.1); }
+.spot-orb.exhale { transform: scale(.92); }
+
+.spot-count {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 40px;
+  font-weight: 900;
+  color: #19453a;
+  line-height: 1;
+  text-align: center;
+}
+
+.spot-phase {
+  font-size: 9.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: #2c6152;
+  font-weight: 800;
+  text-align: center;
+  margin-top: 3px;
+}
+
+/* Grounding dots */
+.spot-dots { display: flex; gap: 6px; margin-bottom: 10px; }
+
+.spot-dots i {
+  flex: 1;
+  height: 6px;
+  border-radius: 4px;
+  background: #e6ece9;
+}
+
+.spot-dots i.on { background: #3f7d68; }
+
+/* Checklist */
+.spot-checklist { display: grid; gap: 7px; }
+
+.spot-check {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #3f4d47;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.spot-check .box {
+  width: 16px; height: 16px;
+  border-radius: 4px;
+  border: 1.6px solid #c4d4cd;
+  flex: none;
+  margin-top: 1px;
+  position: relative;
+  transition: background .16s ease, border-color .16s ease;
+}
+
+.spot-check.done .box { background: #3f7d68; border-color: #3f7d68; }
+
+.spot-check.done .box::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  color: #fff;
+  font-size: 11px;
+  display: grid;
+  place-items: center;
+}
+
+.spot-card.reminder { background: #eaf3ef; border-color: #cfe0d8; }
+
+/* Home entry point — visually distinct so it reads as a different room. */
+.spotlink {
+  border-color: #cfe0d8;
+  color: #3f7d68;
+  margin-bottom: 10px;
+}
+
+.spotlink:hover { border-color: #3f7d68; color: #3f7d68; }
+
+@media (max-width: 380px) {
+  .screen.calm { padding: 18px 14px 14px; }
+  .spot-step { padding: 11px 12px; font-size: 12.5px; }
+  .spot-card { padding: 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spot-orb { transition: none; }
+  .spot-step:hover { transform: none; }
+}

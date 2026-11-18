@@ -75,6 +75,7 @@
     </div>
 
     <div class="homerow">
+      <button class="ghostbtn spotlink" id="spotlightBtn">Before the spotlight</button>
       <button class="ghostbtn" id="progressBtn">View progress</button>
     </div>
   </section>
@@ -274,6 +275,90 @@
 
     <div class="endbtns">
       <button class="ghostbtn" id="progressBackBtn">Back</button>
+    </div>
+  </section>
+
+  <!-- ============================================ 5. BEFORE THE SPOTLIGHT
+
+       A deliberately different room: cream and sage instead of the practice
+       palette, slower motion, nothing scored. A student arrives here because
+       she is nervous, so this screen must feel like a place to sit down,
+       not another dashboard. -->
+  <section class="screen calm" id="spotlightScreen" data-screen="spotlight"
+           aria-label="Before the spotlight">
+    <div class="spot-eyebrow">Before the spotlight</div>
+    <h1 class="spot-title">Let’s get your<br><em>breath back.</em></h1>
+    <p class="spot-lead">Nothing here is measured. Take as long as you need.</p>
+
+    <div class="spot-steps">
+      <button class="spot-step" id="breatheBtn">
+        <span class="sn">1</span><span class="st">Breathe with me</span><span class="sx">4 · 2 · 6</span>
+      </button>
+      <button class="spot-step" id="groundBtn">
+        <span class="sn">2</span><span class="st">Ground yourself</span><span class="sx">5-4-3-2-1</span>
+      </button>
+      <button class="spot-step" id="confidenceBtn">
+        <span class="sn">3</span><span class="st">Say one sentence</span><span class="sx">2 min</span>
+      </button>
+    </div>
+
+    <!-- Breathing: orb + countdown, replacing the old report-screen card. -->
+    <div class="spot-card" id="breatheCard" hidden>
+      <div class="spot-orb" id="spotOrb">
+        <div><div class="spot-count" id="spotCount">4</div>
+             <div class="spot-phase" id="spotPhase">Breathe in</div></div>
+      </div>
+      <p class="spot-note" id="spotBreathNote">Through your nose, slowly.</p>
+      <div class="spot-btns">
+        <button class="ghostbtn" id="spotBreatheStart">Start</button>
+        <button class="ghostbtn" id="spotBreatheStop" disabled>Stop</button>
+      </div>
+    </div>
+
+    <!-- Grounding: 5-4-3-2-1, one step at a time, nothing typed. -->
+    <div class="spot-card" id="groundCard" hidden>
+      <div class="spot-cardhead">
+        <strong id="groundTitle">Name five things you can see.</strong>
+        <span id="groundStep">STEP 1 OF 5</span>
+      </div>
+      <div class="spot-dots" id="groundDots"></div>
+      <p class="spot-note" id="groundHint">Look around the room. The desk. The window. Your own hand.</p>
+      <div class="spot-btns">
+        <button class="ghostbtn" id="groundNext">Next</button>
+        <button class="ghostbtn" id="groundDone">Done</button>
+      </div>
+    </div>
+
+    <!-- Confidence session: breathe, then say your opening sentence. -->
+    <div class="spot-card" id="confidenceCard" hidden>
+      <div class="spot-cardhead"><strong>Two-minute reset</strong><span id="confStage">Ready</span></div>
+      <p class="spot-note" id="confText">One round of breathing, then your opening sentence out loud. Measured, never scored.</p>
+      <div class="spot-btns">
+        <input id="openingInput" type="text" placeholder="Type your first sentence (optional)">
+      </div>
+      <div class="spot-btns">
+        <button class="ghostbtn" id="confStart">Begin</button>
+        <button class="ghostbtn" id="confStop" disabled>Stop</button>
+      </div>
+    </div>
+
+    <!-- Checklist: ticked by the student, stored on this device only. -->
+    <div class="spot-card">
+      <div class="spot-cardhead">
+        <strong>Ready-to-speak checklist</strong>
+        <span id="checkCount">0 of 6</span>
+      </div>
+      <div class="spot-checklist" id="spotChecklist"></div>
+    </div>
+
+    <!-- Reminders: generated from real session history, or honest silence. -->
+    <div class="spot-card reminder">
+      <div class="spot-cardhead"><strong>Reminder for you</strong><span>FROM YOUR PROGRESS</span></div>
+      <p class="spot-note" id="spotReminder">Record a session and a reminder will appear here.</p>
+    </div>
+
+    <div class="endbtns">
+      <button class="ghostbtn" id="spotBackBtn">Back</button>
     </div>
   </section>
 
