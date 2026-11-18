@@ -260,10 +260,9 @@ function steadinessLabel(cv) {
  */
 const METER_BANDS = 24;
 
-function buildMeterBars() {
-  const wave = $("waveform");
+function buildMeterBars(containerId) {
+  const wave = $(containerId || "waveform");
   if (!wave) return;
-  // Replace the static bars with addressable ones, if not already done.
   if (wave.children.length !== METER_BANDS || !wave.dataset.live) {
     wave.innerHTML = "";
     for (let i = 0; i < METER_BANDS; i++) {
@@ -275,8 +274,8 @@ function buildMeterBars() {
   }
 }
 
-function updateMeter() {
-  const wave = $("waveform");
+function updateMeter(containerId) {
+  const wave = $(containerId || "waveform");
   if (!wave || !mic.analyser) return;
 
   const bins = new Uint8Array(mic.analyser.frequencyBinCount);
@@ -305,10 +304,93 @@ function updateMeter() {
   }
 }
 
-function resetMeter() {
-  const wave = $("waveform");
+function resetMeter(containerId) {
+  const wave = $(containerId || "waveform");
   if (!wave) return;
   Array.from(wave.children).forEach((bar) => { bar.style.height = "3px"; });
+}
+
+/* =============================================================== mic check */
+
+/*
+ * Check the microphone BEFORE recording.
+ *
+ * The live meter only existed on the speaking screen, so a student found out
+ * about a muted or broken mic only after pressing start and getting silence.
+ * This opens the mic briefly, shows the same real meter on the home screen,
+ * then releases it — holding the microphone open on a page nobody is
+ * recording is a privacy cost with no benefit.
+ */
+let micCheck = { ctx: null, stream: null, analyser: null, rafId: null, until: 0 };
+
+async function runMicCheck() {
+  const btn = $("micCheckBtn");
+  const state = $("homeMicState");
+  if (micCheck.rafId) stopMicCheck();
+
+  buildMeterBars("homeWaveform");
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (state) state.textContent = "no microphone support";
+    return;
+  }
+
+  try {
+    micCheck.stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false },
+    });
+  } catch (err) {
+    const name = err && err.name;
+    if (state) {
+      state.textContent =
+        name === "NotAllowedError" ? "blocked — allow mic"
+        : name === "NotFoundError" ? "no microphone found"
+        : "could not open mic";
+    }
+    return;
+  }
+
+  if (btn) btn.textContent = "Listening — speak now";
+  micCheck.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = micCheck.ctx.createMediaStreamSource(micCheck.stream);
+  micCheck.analyser = micCheck.ctx.createAnalyser();
+  micCheck.analyser.fftSize = 512;
+  src.connect(micCheck.analyser);
+  micCheck.until = performance.now() + 5000;
+
+  const loop = () => {
+    if (!micCheck.analyser) return;
+    // Reuse the exact meter code the session uses, so what a student sees
+    // here is the same measurement, not a different animation.
+    const saved = mic.analyser;
+    mic.analyser = micCheck.analyser;
+    updateMeter("homeWaveform");
+    mic.analyser = saved;
+
+    const bins = new Uint8Array(micCheck.analyser.frequencyBinCount);
+    micCheck.analyser.getByteFrequencyData(bins);
+    const peak = bins.reduce((a, b) => Math.max(a, b), 0);
+    if (state) state.textContent = peak > 25 ? "hearing you" : "no sound yet";
+
+    if (performance.now() > micCheck.until) {
+      stopMicCheck();
+      if (state) state.textContent = peak > 25 ? "microphone works" : "was silent — try again";
+      if (btn) btn.textContent = "Check my microphone";
+      return;
+    }
+    micCheck.rafId = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+function stopMicCheck() {
+  if (micCheck.rafId) { cancelAnimationFrame(micCheck.rafId); micCheck.rafId = null; }
+  if (micCheck.stream) micCheck.stream.getTracks().forEach((t) => t.stop());
+  if (micCheck.ctx) { try { micCheck.ctx.close(); } catch (e) { /* closed */ } }
+  micCheck.stream = null;
+  micCheck.ctx = null;
+  micCheck.analyser = null;
+  resetMeter("homeWaveform");
 }
 
 function spokenText() {
@@ -1644,6 +1726,7 @@ function initSession() {
       seconds = 0; paused = false;
       const t = $("sessionTimer");
       if (t) t.textContent = "00:00";
+      if (micCheck.stream) stopMicCheck();
       showScreen("live");
       showPassage();
       startTimer();
@@ -1747,6 +1830,10 @@ function checkOffline() {
 })();
 
 buildMeterBars();
+buildMeterBars("homeWaveform");
+
+const micCheckBtn = $("micCheckBtn");
+if (micCheckBtn) micCheckBtn.addEventListener("click", runMicCheck);
 
 const audienceBtn = $("audienceBtn");
 if (audienceBtn) audienceBtn.addEventListener("click", askAudienceQuestion);

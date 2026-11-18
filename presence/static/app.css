@@ -1205,3 +1205,34 @@ body {
   display: flex;
   align-items: center;
 }
+
+/* Microphone check on the home screen. Same real meter as the session, shown
+   before recording starts so a muted mic is discovered in advance. */
+.miccheck {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  flex: none;
+}
+
+.miccheck-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.miccheck-state { color: var(--accent-ink); text-transform: none; letter-spacing: .02em; font-size: 11.5px; }
+
+.speaker-home {
+  margin-top: 10px;
+  height: 38px;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.miccheck-btn { margin-top: 10px; padding: 11px; font-size: 13px; }

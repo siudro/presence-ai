@@ -952,6 +952,37 @@ class TestNewFeatures(unittest.TestCase):
         self.assertIn("function buildMeterBars", self.js)
         self.assertNotIn('<i style="height:', self.html)
 
+    def test_home_screen_has_a_mic_check(self):
+        """
+        The meter only existed on the speaking screen, so a muted mic was
+        discovered only after pressing start.
+        """
+        self.assertIn('id="homeWaveform"', self.html)
+        self.assertIn('id="micCheckBtn"', self.html)
+        self.assertIn("runMicCheck", self.js)
+
+    def test_mic_check_releases_the_microphone(self):
+        """
+        Holding the mic open on a page nobody is recording is a privacy cost
+        with no benefit, so the check must stop its tracks.
+        """
+        start = self.js.index("function stopMicCheck")
+        block = self.js[start:start + 700]
+        self.assertIn("getTracks()", block)
+        self.assertIn("stop()", block)
+
+    def test_mic_check_timeboxed(self):
+        """It must not listen forever if the student walks away."""
+        start = self.js.index("async function runMicCheck")
+        block = self.js[start:self.js.index("function stopMicCheck")]
+        self.assertIn("micCheck.until", block)
+
+    def test_mic_check_uses_the_same_meter_code(self):
+        """The home meter must be the real measurement, not a second animation."""
+        start = self.js.index("async function runMicCheck")
+        block = self.js[start:self.js.index("function stopMicCheck")]
+        self.assertIn("updateMeter", block)
+
     def test_level_meter_says_it_is_relative(self):
         """Browser mic levels are uncalibrated; the claim must stay relative."""
         with open(os.path.join(HERE, "static", "index.html"), encoding="utf-8") as fh:

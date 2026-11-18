@@ -46,6 +46,19 @@
       <textarea id="passageInput" rows="3" placeholder="Paste your speech or paragraph here…"></textarea>
     </details>
 
+    <!-- Microphone check before recording.
+         The live meter only existed on the speaking screen, so a student
+         discovered a broken or muted mic only AFTER pressing start. This
+         puts the same measurement on the home screen, idle and honest. -->
+    <div class="miccheck">
+      <div class="miccheck-row">
+        <span class="miccheck-label">Microphone</span>
+        <span class="miccheck-state" id="homeMicState">tap to check</span>
+      </div>
+      <div class="speaker speaker-home" id="homeWaveform" aria-label="Microphone level" role="img"></div>
+      <button class="ghostbtn miccheck-btn" id="micCheckBtn">Check my microphone</button>
+    </div>
+
     <button class="record" id="startBtn">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M5 10v1a7 7 0 0 0 14 0v-1" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
       Start speaking
