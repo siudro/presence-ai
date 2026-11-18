@@ -36,6 +36,7 @@ That single rule decides most of the architecture below.
 | Voice level | Live dBFS from the microphone | browser audio, relative only |
 | Transcript | Speech → text, typed live while speaking | Cohere Transcribe |
 | Freezes | Silences of 20 s or more | live, during the recording |
+| Voice steadiness | How much pitch moves across voiced frames | autocorrelation, relative only |
 
 ### It adapts to three kinds of student
 
@@ -123,6 +124,9 @@ bug cannot quietly return.
 
 ## Honest limitations
 
+- **Voice steadiness is pitch variation, not emotion.** The page reports *steady / varied /
+  unsteady* and never "nervous". A trembling voice can come from nerves, a cold, or the room, and
+  a browser microphone cannot tell the difference.
 - **Browser microphones are uncalibrated.** Voice level is relative to this speaker's own
   recording, never comparable between people or devices.
 - **Audio leaves the device** when Cohere transcription is on. Measurements are local; the

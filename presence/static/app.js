@@ -110,6 +110,7 @@ const mic = {
   captureSource: null,
   captureBuffers: [],
   captureRate: 0,
+  pitchFrames: [],
   recognition: null,
   finalText: "",
   interimText: "",
@@ -161,6 +162,86 @@ function readDb() {
   return rms === 0 ? -60 : Math.max(-60, 20 * Math.log10(rms));
 }
 
+/* ======================================================== voice steadiness */
+
+/*
+ * Pitch variation, the measurement behind "shaky voice".
+ *
+ * WHAT IT MEASURES: how much the fundamental frequency (F0) moves across
+ * consecutive 40 ms windows of voiced speech. A steady voice holds near one
+ * pitch; an unsteady one wanders.
+ *
+ * WHAT IT DOES NOT MEASURE: emotion. A trembling voice can come from nerves,
+ * a cold, the room, or simply the speaker's natural range. The page therefore
+ * reports "steady / varied / unsteady" and never "nervous". Claiming affect
+ * from a browser microphone is the same class of error as inventing a wpm.
+ *
+ * RELATIVE ONLY: the figure is compared against the same speaker's own
+ * recording. Microphones differ wildly, so cross-person comparison would be
+ * meaningless.
+ *
+ * Method: normalised autocorrelation over the lag range for 70-400 Hz, which
+ * covers adult speech. Unvoiced frames (consonants, silence, noise) are
+ * discarded rather than guessed at.
+ */
+const PITCH_MIN_HZ = 70;
+const PITCH_MAX_HZ = 400;
+const PITCH_WINDOW = 1024;      // ~21 ms at 48 kHz
+const PITCH_MIN_RMS = 0.01;     // below this it is silence, not speech
+
+/**
+ * Estimate F0 for one buffer. Returns 0 when the frame is unvoiced.
+ */
+function estimatePitch(buf, sampleRate) {
+  const n = Math.min(PITCH_WINDOW, buf.length);
+  if (n < 256) return 0;
+
+  let energy = 0;
+  for (let i = 0; i < n; i++) energy += buf[i] * buf[i];
+  const rms = Math.sqrt(energy / n);
+  if (rms < PITCH_MIN_RMS) return 0;   // unvoiced or silent: discard
+
+  const minLag = Math.floor(sampleRate / PITCH_MAX_HZ);
+  const maxLag = Math.min(Math.floor(sampleRate / PITCH_MIN_HZ), n - 1);
+  if (maxLag <= minLag) return 0;
+
+  let bestLag = 0;
+  let bestCorr = 0;
+  for (let lag = minLag; lag < maxLag; lag++) {
+    let corr = 0;
+    for (let i = 0; i < n - lag; i++) corr += buf[i] * buf[i + lag];
+    if (corr > bestCorr) { bestCorr = corr; bestLag = lag; }
+  }
+  if (!bestLag || bestCorr <= 0) return 0;
+
+  const f0 = sampleRate / bestLag;
+  // Reject octave jumps: anything outside the searched band is not trusted.
+  return (f0 >= PITCH_MIN_HZ && f0 <= PITCH_MAX_HZ) ? f0 : 0;
+}
+
+/**
+ * Pitch variation as a coefficient of variation, in percent.
+ *
+ * Needs at least 6 voiced frames; below that it is noise, and the honest
+ * answer is "not enough voice to judge" rather than a number.
+ */
+function pitchVariability(frames) {
+  if (!frames || frames.length < 6) return null;
+  const mean = frames.reduce((a, b) => a + b, 0) / frames.length;
+  if (mean <= 0) return null;
+  const variance = frames.reduce((sum, f) => sum + (f - mean) ** 2, 0) / frames.length;
+  return Math.round((Math.sqrt(variance) / mean) * 1000) / 10;
+}
+
+/** Plain-language reading of the variation figure. Never an emotion word. */
+function steadinessLabel(cv) {
+  if (cv === null || cv === undefined) return "not enough voice to judge";
+  if (cv < 2) return "very steady";
+  if (cv < 5) return "steady";
+  if (cv < 9) return "varied";
+  return "unsteady";
+}
+
 function spokenText() {
   return (mic.finalText + " " + mic.interimText).trim();
 }
@@ -186,7 +267,10 @@ function liveMetrics() {
   // absolute "good volume" figure would be a claim we cannot support.
   const voicePercent = Math.max(0, Math.min(100, Math.round(((avgDb + 60) / 50) * 100)));
 
-  return { seconds, words, fillers, wpm, fillerRate, longPauses, avgDb, voicePercent, pauseSeconds };
+  const pitchCv = pitchVariability(mic.pitchFrames);
+
+  return { seconds, words, fillers, wpm, fillerRate, longPauses,
+           avgDb, voicePercent, pauseSeconds, pitchCv };
 }
 
 function paceStatusFor(wpm) {
@@ -492,6 +576,15 @@ function tick() {
   if (!mic.running) return;
   if (!mic.paused) {
     const db = readDb();
+
+    // One pitch estimate per tick. Frames that are unvoiced return 0 and are
+    // dropped, so consonants and silence never pollute the variation figure.
+    if (mic.analyser && mic.ctx) {
+      const pb = new Float32Array(mic.analyser.fftSize);
+      mic.analyser.getFloatTimeDomainData(pb);
+      const f0 = estimatePitch(pb, mic.ctx.sampleRate);
+      if (f0 > 0 && mic.pitchFrames.length < 4000) mic.pitchFrames.push(f0);
+    }
     mic.dbSamples.push(db);
     if (mic.dbSamples.length > 3000) mic.dbSamples.shift();
 
@@ -516,6 +609,7 @@ function tick() {
       fillerRate: m.fillerRate,
       pauseRate: m.longPauses,
       voicePercent: m.voicePercent,
+      pitchCv: m.pitchCv,
       paceStatus: paceStatusFor(m.wpm),
       paceProgress: m.wpm === null ? 0 : Math.min(100, Math.round((m.wpm / 200) * 100)),
     });
@@ -546,6 +640,7 @@ window.presenceAdapter = {
     mic.pausedTotal = 0;
     mic.pauses = [];
     mic.dbSamples = [];
+    mic.pitchFrames = [];
     mic.lastLoudAt = 0;
     mic.lastTickPause = 0;
     mic.running = true;
@@ -651,6 +746,7 @@ window.presenceAdapter = {
       report = null;   // offline: fall back to what the browser measured
     }
 
+    window.__lastPitchCv = m.pitchCv;
     showReport(report, m, transcript, transcriptSourceText);
     return report;
   },
@@ -791,9 +887,11 @@ function showReport(serverReport, m, transcript, transcriptSourceText) {
     fillerRate,
     pauses,
     voicePercent: voice,
+    pitchCv: m.pitchCv,
     feedbackTitle: score >= 75 ? "Strong delivery" : score >= 50 ? "Solid progress" : "Worth another run",
     feedback: transcript
-      ? "You said " + m.words + " words with " + m.fillers + " filler" + (m.fillers === 1 ? "" : "s") + "."
+      ? "You said " + m.words + " words with " + m.fillers + " filler" + (m.fillers === 1 ? "" : "s") +
+        (m.pitchCv != null ? "; pitch was " + steadinessLabel(m.pitchCv) + "." : ".")
       : "No transcript was captured, so only timing and volume were measured.",
   });
 
@@ -993,6 +1091,9 @@ function exportSession() {
     "Long pauses: " + (t.timer ? t.timer.long_pauses : "—"),
     "Freezes: " + (t.silence ? t.silence.count : "—"),
     "Voice level: " + (t.voice_level ? t.voice_level.value_db + " dBFS (relative, uncalibrated)" : "—"),
+    "Pitch variation: " + (window.__lastPitchCv != null
+        ? window.__lastPitchCv + "% (" + steadinessLabel(window.__lastPitchCv) + ", relative to this recording only)"
+        : "not measurable (not enough voiced speech)"),
     "",
     "TRANSCRIPT",
     "----------",
@@ -1392,6 +1493,10 @@ window.addEventListener("presence:metrics", (event) => {
     const el = $("voicePercent");
     if (el) el.textContent = Math.round(m.voicePercent) + "%";
   }
+  if (m.pitchCv !== undefined) {
+    const el = $("liveSteady");
+    if (el) el.textContent = m.pitchCv === null ? "—" : m.pitchCv + "%";
+  }
   if (m.paceStatus) {
     const el = $("paceStatus");
     if (el) el.textContent = "\u25cf " + m.paceStatus;
@@ -1445,6 +1550,10 @@ window.addEventListener("presence:report", (event) => {
   }
   if (r.pauses != null) { const el = $("finalPauses"); if (el) el.textContent = r.pauses; }
   if (r.voicePercent != null) { const el = $("finalVoice"); if (el) el.textContent = Math.round(r.voicePercent) + "%"; }
+  if (r.pitchCv !== undefined) {
+    const el = $("finalSteady");
+    if (el) el.textContent = r.pitchCv === null ? "—" : r.pitchCv + "%";
+  }
   if (r.feedbackTitle) { const el = $("reportFeedbackTitle"); if (el) el.textContent = r.feedbackTitle; }
   if (r.feedback) { const el = $("reportFeedback"); if (el) el.textContent = r.feedback; }
 });

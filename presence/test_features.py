@@ -814,6 +814,92 @@ class TestFeatureAudit(unittest.TestCase):
         self.assertEqual(missing, [], f"JS targets missing from the page: {missing}")
 
 
+class TestVoiceSteadiness(unittest.TestCase):
+    """
+    "Shaky voice" is measured as pitch variation. These tests use real
+    synthetic audio, so they prove the detector works rather than that the
+    function exists.
+    """
+
+    @staticmethod
+    def tone(freq, seconds=0.04, rate=16000, jitter=0.0, period_ms=250):
+        import math
+        out = []
+        phase = 0.0
+        for i in range(int(rate * seconds)):
+            f = freq * (1.0 + jitter * math.sin(2 * math.pi * i / (rate * period_ms / 1000)))
+            phase += 2 * math.pi * f / rate
+            out.append(0.5 * math.sin(phase))
+        return out
+
+    def test_js_pitch_estimator_finds_a_known_pitch(self):
+        """Run the real JS estimator over a 150 Hz tone."""
+        import json
+        import subprocess
+        js = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        start = js.index("const PITCH_MIN_HZ")
+        end = js.index("function spokenText()")
+        block = js[start:end]
+
+        tone = self.tone(150.0, seconds=0.04)
+        script = (
+            block
+            + "\nconst data = " + json.dumps(tone) + ";"
+            + "\nconst f = estimatePitch(data, 16000);"
+            + "\nconsole.log(JSON.stringify({f0: f}));"
+        )
+        out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr[:300])
+        f0 = json.loads(out.stdout)["f0"]
+        # Autocorrelation lands within a couple of percent on a clean tone.
+        self.assertAlmostEqual(f0, 150.0, delta=8.0, msg=f"got {f0}")
+
+    def test_js_estimator_rejects_silence(self):
+        import json
+        import subprocess
+        js = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        block = js[js.index("const PITCH_MIN_HZ"):js.index("function spokenText()")]
+        silent = [0.0] * 1024
+        script = block + "\nconst data = " + json.dumps(silent) + ";\nconsole.log(JSON.stringify({f0: estimatePitch(data, 16000)}));"
+        out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(json.loads(out.stdout)["f0"], 0)
+
+    def test_pitch_variability_needs_enough_frames(self):
+        import json
+        import subprocess
+        js = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        block = js[js.index("const PITCH_MIN_HZ"):js.index("function spokenText()")]
+        # Three frames is not enough to judge.
+        script = block + "\nconsole.log(JSON.stringify({cv: pitchVariability([150,151,149])}));"
+        out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertIsNone(json.loads(out.stdout)["cv"])
+
+    def test_steady_tone_reads_low_variation(self):
+        import json
+        import subprocess
+        js = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        block = js[js.index("const PITCH_MIN_HZ"):js.index("function spokenText()")]
+        script = block + "\nconsole.log(JSON.stringify({cv: pitchVariability(Array(20).fill(150))}));"
+        out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+        self.assertEqual(json.loads(out.stdout)["cv"], 0)
+
+    def test_label_never_uses_an_emotion_word(self):
+        """
+        The output is steadiness, not affect. A trembling voice is not
+        evidence of nervousness, and saying so would be a false claim.
+        """
+        js = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        start = js.index("function steadinessLabel")
+        block = js[start:js.index("function spokenText()")]
+        for banned in ("nervous", "anxious", "confident", "afraid", "scared", "stressed"):
+            self.assertNotIn(banned, block.lower(), f"{banned} must not appear")
+
+    def test_steadiness_tiles_exist(self):
+        html = open(os.path.join(HERE, "static", "index.html"), encoding="utf-8").read()
+        self.assertIn('id="liveSteady"', html)
+        self.assertIn('id="finalSteady"', html)
+
+
 class TestArabicCounting(unittest.TestCase):
     """
     Arabic is one of the three target profiles, so counting it wrongly is a
