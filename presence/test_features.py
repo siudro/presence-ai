@@ -673,6 +673,37 @@ class TestReportedBugs(unittest.TestCase):
         self.assertIn("sendLiveChunk", self.js)
         self.assertIn("LIVE_CHUNK_MS", self.js)
 
+    def test_failed_chunk_does_not_discard_audio(self):
+        """
+        When a window returned no text, the old code kept only 40 chunks —
+        about 3.4 seconds at 48 kHz — destroying whatever speech had queued.
+        Long sessions then stopped producing text.
+        """
+        start = self.js.index("async function sendLiveChunk")
+        end = self.js.index("function startRecognition")
+        body = self.js[start:end]
+        # The bound must be time-based, not a fixed small chunk count.
+        self.assertIn("MAX_PENDING_SECONDS", body)
+        self.assertNotIn("slice(-40)", body)
+
+    def test_pending_audio_bound_is_time_based(self):
+        """A chunk count means different durations on different sample rates."""
+        self.assertIn("MAX_PENDING_SECONDS = 45", self.js)
+        start = self.js.index("const maxChunks")
+        block = self.js[start:start + 200]
+        self.assertIn("mic.captureRate", block)
+
+    def test_pitch_collection_does_not_stop_mid_session(self):
+        """
+        Frames were refused past a fixed count, so a long recording quietly
+        stopped measuring steadiness.
+        """
+        start = self.js.index("function pitchVariability")
+        # The collection guard lives in the tick loop.
+        tick = self.js[self.js.index("function tick"):self.js.index("function dispatch")]
+        self.assertNotIn("pitchFrames.length < 4000", tick)
+        self.assertIn("pitchFrames.shift()", tick)
+
     def test_long_speech_keeps_transcribing(self):
         """
         The chunker cleared the audio buffer BEFORE the request. A chunk that
@@ -1066,6 +1097,33 @@ class TestNewFeatures(unittest.TestCase):
     def test_audience_panel_exists(self):
         self.assertIn('id="audienceQuestion"', self.html)
         self.assertIn("askAudienceQuestion", self.js)
+
+
+class TestLongSessionCapacity(unittest.TestCase):
+    """Long recordings must not silently lose text or stop measuring."""
+
+    def test_long_transcript_is_not_truncated_at_five_minutes(self):
+        # ~45k characters is roughly an eight-minute presentation.
+        text = "word " * 9000
+        session = app.build_session({
+            "profile": "p", "language": "en", "duration_seconds": 600,
+            "pauses": [], "avg_db": -30, "peak_db": -8,
+            "transcript": text, "nudges": [],
+        })
+        self.assertEqual(session.words, 9000)
+        self.assertGreater(len(session.transcript), 30000)
+
+    def test_word_count_survives_a_long_timeline(self):
+        """Timeline inputs must not be silently clipped to a tiny window."""
+        session = app.build_session({
+            "profile": "p", "language": "en", "duration_seconds": 30,
+            "pauses": [], "avg_db": -30, "peak_db": -8,
+            "transcript": "a " * 120,
+            "word_times": list(range(30)),
+            "filler_times": [],
+            "nudges": [],
+        })
+        self.assertEqual(len(session.timeline), 30)
 
 
 class TestArabicCounting(unittest.TestCase):

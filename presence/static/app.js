@@ -622,6 +622,16 @@ function stopMic() {
  */
 const LIVE_CHUNK_MS = 9000;
 
+/*
+ * How much un-transcribed audio to keep while retrying.
+ *
+ * 45 seconds covers a long pause plus a sentence, and 16 kHz mono PCM for 45
+ * seconds is well under the 25 MB upload limit, so retrying a full buffer is
+ * always safe. Bounding by time rather than by chunk count keeps the memory
+ * the same on every device.
+ */
+const MAX_PENDING_SECONDS = 45;
+
 let liveChunkTimer = null;
 let liveChunkBusy = false;
 let liveTranscriptText = "";
@@ -662,10 +672,25 @@ async function sendLiveChunk() {
       stopLiveCohere();
       setMicStatus("No Cohere key — using the browser's live typing instead.");
     } else {
-      // No text but no hard error: keep the audio and try again next tick,
-      // but stop the buffer growing without bound.
-      if (mic.captureBuffers.length > 60) {
-        mic.captureBuffers = mic.captureBuffers.slice(-40);
+      /*
+       * No text, but no hard error either — usually a window that was mostly
+       * silence, or a very short utterance Cohere would not transcribe.
+       *
+       * The old code kept only the last 40 chunks here. At 48 kHz that is
+       * about 3.4 seconds, so any speech that had accumulated was destroyed
+       * and that passage vanished from the transcript permanently. A student
+       * who spoke in short bursts saw text stop after a minute.
+       *
+       * Correct behaviour: keep the audio and let the next window include it,
+       * so nothing spoken is dropped. It is bounded by TIME rather than by
+       * chunk count, because a count means different durations on different
+       * devices (sample rate varies).
+       */
+      const maxChunks = Math.ceil((mic.captureRate || 48000) / 4096 * MAX_PENDING_SECONDS);
+      if (mic.captureBuffers.length > maxChunks) {
+        // Only trim if audio is genuinely piling up: drop the oldest, which
+        // has already failed repeatedly, and keep the most recent speech.
+        mic.captureBuffers = mic.captureBuffers.slice(-maxChunks);
       }
     }
   } catch (err) {
@@ -746,7 +771,13 @@ function tick() {
       const pb = new Float32Array(mic.analyser.fftSize);
       mic.analyser.getFloatTimeDomainData(pb);
       const f0 = estimatePitch(pb, mic.ctx.sampleRate);
-      if (f0 > 0 && mic.pitchFrames.length < 4000) mic.pitchFrames.push(f0);
+      if (f0 > 0) {
+        mic.pitchFrames.push(f0);
+        // Keep a rolling window rather than refusing new frames: stopping
+        // collection made a long session look like it had a steady voice
+        // simply because no new measurements were being taken.
+        if (mic.pitchFrames.length > 20000) mic.pitchFrames.shift();
+      }
     }
 
     // The meter is a measurement, so it updates from the same live audio.
@@ -909,9 +940,9 @@ window.presenceAdapter = {
           nudges: [],
           // Timeline inputs. The server folds these into one bucket per
           // second; it decides what the buckets mean, not the browser.
-          db_samples: mic.dbSamples.slice(-3000),
-          word_times: mic.wordTimes.slice(0, 3000),
-          filler_times: mic.fillerTimes.slice(0, 500),
+          db_samples: mic.dbSamples.slice(-12000),   // ~3 min at 60fps
+          word_times: mic.wordTimes.slice(-6000),
+          filler_times: mic.fillerTimes.slice(-2000),
         }),
       });
       if (res.ok) report = await res.json();

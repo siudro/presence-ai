@@ -657,7 +657,10 @@ def build_session(payload: dict) -> Session:
         pauses=[round(p, 2) for p in pauses],
         avg_db=round(float(payload.get("avg_db") or -60.0), 1),
         peak_db=round(float(payload.get("peak_db") or -60.0), 1),
-        transcript=transcript[:4000],
+        # 4000 characters truncates at roughly five minutes of dense speech,
+        # which is shorter than a school presentation. 40 000 is about an
+        # hour and still far below any request-size limit.
+        transcript=transcript[:40000],
         words=words,
         wpm=wpm(words, speaking),
         fillers=fillers,
