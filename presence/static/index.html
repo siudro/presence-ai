@@ -37,6 +37,15 @@
       </div>
     </div>
 
+    <!-- Practice passage. Optional: the student can paste the text they will
+         read, so the transcript can be compared against what was intended.
+         Empty means free speech, which is the default. -->
+    <details class="passage">
+      <summary>Practise a specific passage <span class="dim">(optional)</span></summary>
+      <p class="cardnote">Paste what you plan to say. It appears above the transcript while you speak, so you can glance at it.</p>
+      <textarea id="passageInput" rows="3" placeholder="Paste your speech or paragraph here…"></textarea>
+    </details>
+
     <button class="record" id="startBtn">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M5 10v1a7 7 0 0 0 14 0v-1" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
       Start speaking
@@ -107,6 +116,8 @@
             stroke-width="13" stroke-linecap="round" pathLength="100" stroke-dasharray="0 100"/>
     </svg>
     <p class="sr-only" id="paceStatus" aria-live="polite">Waiting for speech</p>
+
+    <div class="passageview" id="passageView" hidden></div>
 
     <div class="stops">
       <button class="stop" id="pauseBtn" aria-label="Pause session">
@@ -179,6 +190,7 @@
     <div class="endbtns">
       <button class="ghostbtn" id="againBtn">Practise again</button>
       <button class="ghostbtn" id="reportProgressBtn">See progress</button>
+      <button class="ghostbtn" id="exportBtn">Save result</button>
     </div>
   </section>
 
@@ -194,6 +206,11 @@
     <div class="delta">
       <div class="dlabel"><strong id="deltaTitle">No sessions yet</strong><span>against your own target</span></div>
       <div class="dnum" id="deltaNum">—</div>
+    </div>
+
+    <div class="delta best">
+      <div class="dlabel"><strong id="bestPace">—</strong><span id="bestPaceLabel">no sessions yet</span></div>
+      <div class="dnum bestnum">BEST</div>
     </div>
 
     <div class="sessionlist" id="sessionList">

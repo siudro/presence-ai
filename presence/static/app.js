@@ -125,10 +125,17 @@ const mic = {
   lastTickPause: 0,
 };
 
+// Every language the Settings dropdown offers must appear here, or the
+// browser's recogniser silently falls back to en-US and transcribes Arabic
+// (or Polish, or Korean) as if it were English. Nine were missing.
 const SPEECH_LOCALES = {
-  "en-US": "en-US", "en-GB": "en-GB", "ar-SA": "ar-SA", "ar": "ar-SA",
-  "es-ES": "es-ES", "fr-FR": "fr-FR", "de-DE": "de-DE", "hi-IN": "hi-IN",
-  "ja-JP": "ja-JP",
+  "en-US": "en-US", "en-GB": "en-GB",
+  "ar-SA": "ar-SA", "ar": "ar-SA",
+  "es-ES": "es-ES", "fr-FR": "fr-FR", "de-DE": "de-DE",
+  "it-IT": "it-IT", "pt-PT": "pt-PT", "nl-NL": "nl-NL",
+  "pl-PL": "pl-PL", "el-GR": "el-GR", "tr-TR": "tr-TR",
+  "vi-VN": "vi-VN", "zh-CN": "zh-CN", "ja-JP": "ja-JP",
+  "ko-KR": "ko-KR", "hi-IN": "hi-IN",
 };
 
 let config = {
@@ -703,21 +710,49 @@ async function loadProgress() {
            "<em>" + (i + 1) + "</em></div>";
   }).join("");
 
-  // Delta: first vs latest measured pace in this window.
-  const first = paces.find((p) => p > 0);
-  const last = paces[paces.length - 1];
+  // Two honest comparisons:
+  //   pace  — first vs latest, which shows direction over time
+  //   best  — the closest any session came to target, which shows capability
+  // Showing only the average would hide both.
+  const measured = paces.filter((p) => p > 0);
+  const first = measured.length ? measured[0] : null;
+  const last = measured.length ? measured[measured.length - 1] : null;
   const delta = first && last ? Math.round(last - first) : null;
+
+  const target = Number(config.targetWpm) || 118;
+  const closest = measured.length
+    ? measured.reduce((best, p) => (Math.abs(p - target) < Math.abs(best - target) ? p : best), measured[0])
+    : null;
+
   const dnum = $("deltaNum");
   const dt = $("deltaTitle");
   if (dnum) dnum.textContent = delta === null ? "\u2014" : (delta >= 0 ? "+" : "") + delta;
   if (dt) dt.textContent = delta === null ? "Not enough data" : "Pace change";
 
+  const bestEl = $("bestPace");
+  const bestLbl = $("bestPaceLabel");
+  if (bestEl) bestEl.textContent = closest === null ? "\u2014" : Math.round(closest);
+  if (bestLbl) {
+    bestLbl.textContent = closest === null
+      ? "no sessions yet"
+      : "closest to your " + target + " wpm target";
+  }
+
+  // Show time as well as date: several sessions on one day looked identical
+  // when only the date was printed, which reads as "the list is broken".
   list.innerHTML = rows.slice().reverse().map((r) => {
-    const when = r.created_at ? new Date(r.created_at).toLocaleDateString() : "";
+    let when = "";
+    if (r.created_at) {
+      const d = new Date(r.created_at);
+      when = d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+             " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    }
     const wpm = r.wpm != null ? Math.round(r.wpm) + " wpm" : "no rate";
     const fillers = (r.filler_total != null ? r.filler_total : 0) + " fillers";
+    const dur = r.duration_seconds != null ? Math.round(r.duration_seconds) + "s" : "";
     return '<div class="srow"><span class="n">' + when + "</span>" +
-           '<span class="r">' + wpm + " · " + fillers + "</span></div>";
+           '<span class="r">' + wpm + " · " + fillers +
+           (dur ? ' · <span class="dim">' + dur + "</span>" : "") + "</span></div>";
   }).join("");
 }
 
@@ -920,6 +955,94 @@ async function sendChat() {
   if (btn) btn.disabled = false;
 }
 
+/* ============================================================== export */
+
+/*
+ * Save the last session as a text file.
+ *
+ * This exists because the competition asks for evidence of iteration: a
+ * student needs to be able to show what a session measured, not just look at
+ * it once. The file contains only measured values and the transcript — it is
+ * a record, not an interpretation.
+ */
+function exportSession() {
+  const report = window.__lastServerReport;
+  if (!report || !report.tools) {
+    toast("No session to save yet");
+    return;
+  }
+
+  const t = report.tools;
+  const m = report.measurements || {};
+  const lines = [
+    "PRESENCE AI — session record",
+    "============================",
+    "",
+    "Date: " + (m.created_at || new Date().toISOString()),
+    "Language: " + (t.language ? t.language.label : m.language || "unknown"),
+    "Duration: " + (m.duration_seconds != null ? m.duration_seconds + " s" : "—"),
+    "Speaking time: " + (m.speaking_seconds != null ? m.speaking_seconds + " s" : "—"),
+    "",
+    "MEASUREMENTS",
+    "------------",
+    "Words per minute: " + (t.words_per_minute ? t.words_per_minute.value : "—") +
+      (t.words_per_minute && t.words_per_minute.comparable === false ? " (not comparable in this language)" : ""),
+    "Words spoken: " + (t.word_counter ? t.word_counter.value : "—"),
+    "Fillers: " + (t.fillers ? t.fillers.total : "—") +
+      (t.fillers && t.fillers.breakdown ? "  " + JSON.stringify(t.fillers.breakdown) : ""),
+    "Long pauses: " + (t.timer ? t.timer.long_pauses : "—"),
+    "Freezes: " + (t.silence ? t.silence.count : "—"),
+    "Voice level: " + (t.voice_level ? t.voice_level.value_db + " dBFS (relative, uncalibrated)" : "—"),
+    "",
+    "TRANSCRIPT",
+    "----------",
+    (m.transcript || "(no transcript)"),
+    "",
+    "— generated by PRESENCE AI. Measurements computed locally; the transcript",
+    "  is produced by Cohere when a key is configured.",
+  ];
+
+  try {
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "presence-session-" + (m.session_id || Date.now()) + ".txt";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast("Session saved to Downloads");
+  } catch (err) {
+    toast("Could not save the file");
+  }
+}
+
+/* ============================================================ passage */
+
+/*
+ * Optional practice passage. When the student pastes what they intend to say,
+ * it is shown beside the live transcript so they can glance at it. It is never
+ * compared automatically: word-matching a spoken transcript against a written
+ * script would produce confident nonsense, since ASR output differs by design.
+ */
+function readPassage() {
+  const box = $("passageInput");
+  return box ? (box.value || "").trim() : "";
+}
+
+function showPassage() {
+  const view = $("passageView");
+  if (!view) return;
+  const text = readPassage();
+  if (!text) {
+    view.hidden = true;
+    view.innerHTML = "";
+    return;
+  }
+  view.hidden = false;
+  view.innerHTML = '<span class="phead">Your passage</span>' + escapeHtml(text);
+}
+
 /* ============================================================ UI plumbing */
 
 function initSettings() {
@@ -1083,6 +1206,7 @@ function initSession() {
       const t = $("sessionTimer");
       if (t) t.textContent = "00:00";
       showScreen("live");
+      showPassage();
       startTimer();
       const ok = await window.presenceAdapter.start({ ...config });
       if (ok === false) {
@@ -1136,6 +1260,9 @@ function initSession() {
       loadProgress();
     });
   }
+  const exportBtn = $("exportBtn");
+  if (exportBtn) exportBtn.addEventListener("click", exportSession);
+
   const progressBackBtn = $("progressBackBtn");
   if (progressBackBtn) {
     progressBackBtn.addEventListener("click", () => showScreen("ready"));

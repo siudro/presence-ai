@@ -763,6 +763,57 @@ class TestEveryLanguageWorks(unittest.TestCase):
         self.assertEqual(set(self.SAMPLES), set(app.LANGUAGES))
 
 
+class TestFeatureAudit(unittest.TestCase):
+    """
+    Guards that came out of a full feature audit. Each one corresponds to a
+    defect that was actually found by probing, not by guessing.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        with open(os.path.join(HERE, "static", "index.html"), encoding="utf-8") as fh:
+            cls.html = fh.read()
+        with open(os.path.join(HERE, "static", "app.js"), encoding="utf-8") as fh:
+            cls.js = fh.read()
+        with open(os.path.join(HERE, "app.py"), encoding="utf-8") as fh:
+            cls.py = fh.read()
+
+    def test_every_offered_language_has_a_speech_locale(self):
+        """
+        Nine languages were offered in Settings but absent from
+        SPEECH_LOCALES, so the browser recogniser silently used en-US and
+        transcribed Arabic/Polish/Korean as English.
+        """
+        import re
+        opts = re.findall(r'<option value="([a-z]{2}(?:-[A-Z]{2})?)"', self.html)
+        block = self.js[self.js.index("SPEECH_LOCALES"):self.js.index("};", self.js.index("SPEECH_LOCALES"))]
+        mapped = re.findall(r'"([\w-]+)":', block)
+        missing = [o for o in opts if o not in mapped]
+        self.assertEqual(missing, [], f"languages without a locale: {missing}")
+
+    def test_every_offered_language_is_known_to_the_server(self):
+        import re
+        opts = re.findall(r'<option value="([a-z]{2}(?:-[A-Z]{2})?)"', self.html)
+        unknown = [o for o in opts if o[:2] not in app.LANGUAGES]
+        self.assertEqual(unknown, [], f"languages the server cannot measure: {unknown}")
+
+    def test_every_screen_is_reachable(self):
+        """Each screen id must exist and be registered in the JS."""
+        for screen in ("readyScreen", "liveScreen", "reportScreen", "progressScreen"):
+            self.assertIn('id="' + screen + '"', self.html, screen + " missing from markup")
+
+    def test_every_bindable_id_exists(self):
+        """
+        The JS writes into these ids. If one is renamed in the markup and not
+        the JS, that number silently stops updating.
+        """
+        import re
+        used = set(re.findall(r'\$\("([A-Za-z][\w-]*)"\)', self.js))
+        ids = set(re.findall(r'id="([^"]+)"', self.html))
+        missing = sorted(i for i in used if i not in ids)
+        self.assertEqual(missing, [], f"JS targets missing from the page: {missing}")
+
+
 class TestArabicCounting(unittest.TestCase):
     """
     Arabic is one of the three target profiles, so counting it wrongly is a
