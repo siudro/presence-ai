@@ -931,6 +931,33 @@ class TestNewFeatures(unittest.TestCase):
     def test_empty_timeline_is_empty_not_fake(self):
         self.assertEqual(app.build_timeline(0, [], [], [], []), [])
 
+    def test_level_meter_reads_real_audio(self):
+        """
+        The meter used to animate on a CSS timer, so it moved identically
+        whether the microphone worked or not. It must now read the analyser.
+        """
+        import re
+        self.assertIn("function updateMeter", self.js)
+        start = self.js.index("function updateMeter")
+        block = self.js[start:self.js.index("function resetMeter")]
+        self.assertIn("getByteFrequencyData", block)
+
+    def test_level_meter_has_no_fake_animation(self):
+        """A CSS timer driving the bars would be decoration pretending to measure."""
+        css = open(os.path.join(HERE, "static", "app.css"), encoding="utf-8").read()
+        self.assertNotIn("animation: idle", css)
+
+    def test_level_meter_bars_are_built_not_hardcoded(self):
+        """Hardcoded heights would flash before real data arrives."""
+        self.assertIn("function buildMeterBars", self.js)
+        self.assertNotIn('<i style="height:', self.html)
+
+    def test_level_meter_says_it_is_relative(self):
+        """Browser mic levels are uncalibrated; the claim must stay relative."""
+        with open(os.path.join(HERE, "static", "index.html"), encoding="utf-8") as fh:
+            html = fh.read().lower()
+        self.assertIn("microphone", html)
+
     def test_heatmap_exists_in_ui(self):
         self.assertIn('id="heatmap"', self.html)
         self.assertIn("renderHeatmap", self.js)

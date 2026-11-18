@@ -244,6 +244,73 @@ function steadinessLabel(cv) {
   return "unsteady";
 }
 
+/* ========================================================== live level meter */
+
+/*
+ * The speaker meter shows the microphone's real level.
+ *
+ * It used to animate on a fixed CSS timer, which looked alive but told the
+ * student nothing — the bars moved identically whether she was silent or
+ * shouting. That is worse than useless: it actively misleads someone trying
+ * to check whether her mic is working.
+ *
+ * Now each bar reads a frequency band from the live analyser, so the meter is
+ * a measurement. It is still RELATIVE to this device only — browser mics are
+ * uncalibrated — and the page says so.
+ */
+const METER_BANDS = 24;
+
+function buildMeterBars() {
+  const wave = $("waveform");
+  if (!wave) return;
+  // Replace the static bars with addressable ones, if not already done.
+  if (wave.children.length !== METER_BANDS || !wave.dataset.live) {
+    wave.innerHTML = "";
+    for (let i = 0; i < METER_BANDS; i++) {
+      const bar = document.createElement("i");
+      bar.style.height = "3px";
+      wave.appendChild(bar);
+    }
+    wave.dataset.live = "1";
+  }
+}
+
+function updateMeter() {
+  const wave = $("waveform");
+  if (!wave || !mic.analyser) return;
+
+  const bins = new Uint8Array(mic.analyser.frequencyBinCount);
+  mic.analyser.getByteFrequencyData(bins);
+
+  /*
+   * Speech energy lives mostly below 4 kHz, so the useful bins are the lower
+   * part of the spectrum. Using the whole range would leave most bars flat
+   * and make the meter look broken again.
+   */
+  const usable = Math.max(8, Math.floor(bins.length * 0.35));
+  const perBar = Math.max(1, Math.floor(usable / METER_BANDS));
+
+  for (let i = 0; i < METER_BANDS; i++) {
+    const bar = wave.children[i];
+    if (!bar) continue;
+    let sum = 0;
+    const start = i * perBar;
+    const end = Math.min(usable, start + perBar);
+    for (let j = start; j < end; j++) sum += bins[j];
+    const avg = sum / Math.max(1, end - start);
+    // 0..255 -> 3..40 px, with a small floor so the meter never looks dead.
+    const h = 3 + (avg / 255) * 37;
+    bar.style.height = Math.round(h) + "px";
+    bar.classList.toggle("soft", avg < 30);
+  }
+}
+
+function resetMeter() {
+  const wave = $("waveform");
+  if (!wave) return;
+  Array.from(wave.children).forEach((bar) => { bar.style.height = "3px"; });
+}
+
 function spokenText() {
   return (mic.finalText + " " + mic.interimText).trim();
 }
@@ -599,6 +666,9 @@ function tick() {
       const f0 = estimatePitch(pb, mic.ctx.sampleRate);
       if (f0 > 0 && mic.pitchFrames.length < 4000) mic.pitchFrames.push(f0);
     }
+
+    // The meter is a measurement, so it updates from the same live audio.
+    updateMeter();
     mic.dbSamples.push(db);
     if (mic.dbSamples.length > 3000) mic.dbSamples.shift();
 
@@ -768,6 +838,7 @@ window.presenceAdapter = {
     }
 
     window.__lastPitchCv = m.pitchCv;
+    resetMeter();
     showReport(report, m, transcript, transcriptSourceText);
     return report;
   },
@@ -1674,6 +1745,8 @@ function checkOffline() {
   showScreen(target);
   if (target === "progress") loadProgressScreen();
 })();
+
+buildMeterBars();
 
 const audienceBtn = $("audienceBtn");
 if (audienceBtn) audienceBtn.addEventListener("click", askAudienceQuestion);

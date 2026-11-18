@@ -75,15 +75,9 @@
 
     <!-- The live speaker meter, carried from Concept B and recoloured for A.
          Its job: prove the microphone is actually hearing the student. -->
-    <div class="speaker" id="waveform" aria-label="Microphone level">
-      <i style="height:9px"></i><i style="height:15px"></i><i style="height:26px"></i>
-      <i style="height:12px"></i><i style="height:32px"></i><i style="height:19px"></i>
-      <i style="height:38px"></i><i style="height:14px"></i><i style="height:27px"></i>
-      <i style="height:10px"></i><i style="height:34px"></i><i style="height:21px"></i>
-      <i style="height:40px"></i><i style="height:16px"></i><i style="height:29px"></i>
-      <i style="height:11px"></i><i style="height:23px"></i><i style="height:35px"></i>
-      <i style="height:18px"></i><i style="height:30px"></i><i style="height:13px"></i>
-      <i style="height:24px"></i><i style="height:37px"></i><i style="height:15px" class="soft"></i>
+    <div class="speaker" id="waveform" aria-label="Microphone level" role="img" aria-description="Live microphone level">
+      <!-- Bars are created in JS from the live analyser. Empty here so
+           there is never a moment showing fake heights. -->
     </div>
     <div class="speaker-label">
       <span>Microphone</span>

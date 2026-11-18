@@ -353,27 +353,25 @@ body {
   flex: none;
 }
 
+/*
+   The bars are driven by the live microphone, not by a CSS animation.
+   Height is set in JS from real frequency energy, so a silent room shows a
+   flat row and loud speech fills it. No animation here on purpose: a timer
+   would move identically regardless of whether the mic worked.
+*/
 .speaker i {
   flex: 1;
   border-radius: 2px;
   background: var(--accent);
-  opacity: .85;
+  opacity: .9;
   min-height: 3px;
-  transform-origin: center;
-  animation: idle 2.6s ease-in-out infinite;
+  height: 3px;
+  align-self: flex-end;
+  /* Smooth the step between frames without hiding the real level. */
+  transition: height .06s linear;
 }
 
-.speaker i:nth-child(3n)   { animation-delay: -.4s; }
-.speaker i:nth-child(3n+1) { animation-delay: -.9s; }
-.speaker i:nth-child(4n)   { animation-delay: -1.4s; }
-.speaker i.soft { opacity: .3; }
-
-/* Gentle idle motion only. Real levels would be a measurement, and would
-   need the same "uncalibrated" caveat as the voice figure. */
-@keyframes idle {
-  0%, 100% { transform: scaleY(1); }
-  50%      { transform: scaleY(.55); }
-}
+.speaker i.soft { opacity: .32; }
 
 .speaker-label {
   display: flex;
@@ -966,7 +964,8 @@ body {
     scroll-behavior: auto !important;
   }
   .transcript .line.past { filter: none; opacity: .72; }
-  .speaker i { animation: none; }
+  /* The meter is data, not decoration: keep it, only stop the transition. */
+  .speaker i { transition: none; }
 }
 
 /* ==========================================================================
