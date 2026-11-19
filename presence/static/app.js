@@ -1652,47 +1652,371 @@ function lastReport() {
  * reachable. They read the last measured session and never estimate: with no
  * session, they say so.
  */
+/* ============================================================ coach rules */
+
+/*
+ * A rule-based coach.
+ *
+ * WHY RULES AND NOT A MODEL: the app must answer with no API key, offline,
+ * and instantly. A rule set also cannot invent a measurement — every answer
+ * here either quotes a number the page computed, or gives general advice that
+ * is explicitly general.
+ *
+ * SHAPE. Each rule has:
+ *   id       stable name, used by tests
+ *   match    array of keywords/phrases; ANY match scores points
+ *   weight   extra points, for rules that should win ties
+ *   needs    "data" when the answer quotes a measurement
+ *   reply    (ctx) => string
+ *
+ * MATCHING. Keywords are scored, not first-match-wins, so "why do I pause so
+ * much when I'm nervous" reaches the nervousness rule rather than losing to
+ * whichever regex happened to be tested first.
+ *
+ * ARABIC. Every practical rule carries Arabic terms too, because the student
+ * may type in either language — the same population the product serves.
+ *
+ * HONESTY. A rule with needs:"data" refuses when there is no recording yet,
+ * and says why. No rule ever produces a number the app did not measure.
+ */
+
+const COACH_RULES = [
+  {
+    id: "greeting",
+    match: ["hello", "hi", "hey", "salam", "السلام", "مرحبا", "اهلا"],
+    weight: 2,
+    needs: null,
+    reply: () => "Hello. Ask me about your pace, your fillers, your freezes, or how you feel " +
+      "before speaking. If you have recorded a session, I can answer from your own numbers.",
+  },
+  {
+    id: "what_first",
+    match: ["first", "priorit", "work on", "start with", "where do i begin", "what next",
+            "ابدأ", "أبدأ", "اول", "أول", "من وين"],
+    weight: 3,
+    needs: "data",
+    reply: ({ tools }) => {
+      const frz = tools.silence ? tools.silence.count : 0;
+      const f = tools.fillers ? tools.fillers.total : 0;
+      const wpm = tools.words_per_minute ? tools.words_per_minute.value : null;
+      if (frz >= 2) return "Your freezes come first — " + frz +
+        " long silence" + (frz === 1 ? "" : "s") + " last time. Practise the first sentence of each slide until it is automatic; that is usually where the freeze starts.";
+      if (f > 5) return "Fillers first: " + f +
+        " in your last attempt. When you feel one coming, close your mouth and count one second instead.";
+      if (wpm != null && wpm > config.targetWpm + 20) return "Pace first. You spoke at " +
+        Math.round(wpm) + " wpm against a target of " + config.targetWpm + ". Slow the ends of sentences.";
+      if (wpm != null && wpm > 0 && wpm < config.targetWpm - 25) return "Pace first, in the other direction. You spoke at " +
+        Math.round(wpm) + " wpm; aim for " + config.targetWpm + " without rushing any single word.";
+      return "Nothing was badly out of range last session. Repeat the same passage once more to confirm it was not a one-off.";
+    },
+  },
+  {
+    id: "pace",
+    match: ["wpm", "words per minute", "speed", "fast", "slow", "pace", "rushing",
+            "سرعة", "اسرع", "أسرع", "بطيء", "ايقاع"],
+    weight: 2,
+    needs: "data",
+    reply: ({ tools }) => {
+      const t = tools.words_per_minute;
+      if (!t) return "This session has no pace figure.";
+      if (t.comparable === false) {
+        return "This language is written without spaces between words, so words per minute is not comparable. " +
+          "Use the delivery shape and characters-per-minute instead.";
+      }
+      if (t.value == null) return "There was not enough speech to measure a pace — under 20 seconds is arithmetic noise, not a rate.";
+      return "You spoke at " + t.value + " wpm against a target band of " + t.target + ". " + t.verdict + ".";
+    },
+  },
+  {
+    id: "fillers",
+    match: ["filler", "um", "uh", "erm", "you know", "like i said",
+            "يعني", "امم", "كلمات الحشو", "حشو"],
+    weight: 2,
+    needs: "data",
+    reply: ({ tools }) => {
+      const f = tools.fillers ? tools.fillers.total : 0;
+      if (!f) return "No fillers were detected in your last recording. That is a real result, not a compliment.";
+      const breakdown = tools.fillers.breakdown || {};
+      const top = Object.entries(breakdown).sort((a, b) => b[1] - a[1])[0];
+      return "You used " + f + " filler" + (f === 1 ? "" : "s") +
+        (top ? " — mostly “" + top[0] + "”" : "") +
+        ". They usually cluster where you translate. Try that sentence in Arabic first, then in English.";
+    },
+  },
+  {
+    id: "pauses",
+    match: ["pause", "pausing", "silence", "gap", "long pause",
+            "وقفة", "وقفات", "الوقفة", "الوقفات", "سكوت", "صمت"],
+    weight: 2,
+    needs: "data",
+    reply: ({ tools }) => {
+      const t = tools.timer;
+      if (!t) return "This session has no pause figure.";
+      if (!t.long_pauses) {
+        return "No pauses over two seconds in your last recording. Short breaths between sentences are normal and wanted.";
+      }
+      return t.long_pauses + " pause" + (t.long_pauses === 1 ? "" : "s") +
+        " over two seconds, longest " + Math.round(t.longest_pause) + "s. " +
+        "Long pauses usually mean you are translating in your head — try a shorter sentence.";
+    },
+  },
+  {
+    id: "freezes",
+    match: ["freeze", "blank", "stuck", "forgot", "lost my words", "mind goes",
+            "نسيت", "اتلخبط", "ما اعرف اكمل"],
+    weight: 2,
+    needs: null,
+    reply: ({ tools }) => {
+      const base = "When you freeze, do not hunt for the perfect word — say the sentence a simpler way. " +
+        "Short sentences give you somewhere to land.";
+      if (!tools) return base;
+      const frz = tools.silence ? tools.silence.count : 0;
+      if (frz) {
+        return base + " You went silent " + frz + " time" + (frz === 1 ? "" : "s") +
+          " last session, so this is worth rehearsing rather than hoping.";
+      }
+      return base;
+    },
+  },
+  {
+    id: "nerves",
+    match: ["nervous", "stress", "anxious", "scared", "afraid", "panic", "worried",
+            "خوف", "خايف", "متوتر", "قلق", "رعب"],
+    weight: 3,
+    needs: null,
+    reply: () => "That is normal, and it is not a skill problem. In for 4, hold 2, out for 6 — three times. " +
+      "Then say only your first sentence out loud. Starting is what calms you; feeling calm first is not required. " +
+      "There is a whole “Before the spotlight” section built for exactly this.",
+  },
+  {
+    id: "arabic_translation",
+    match: ["arabic", "translate", "translating", "in my head",
+            "عربي", "ترجمة", "اترجم", "بالعربي"],
+    weight: 3,
+    needs: null,
+    reply: () => "Translating in your head is why the pauses are long. That is a strategy, not a flaw. " +
+      "The fix is to shorten the unit: translate one clause, not one paragraph, then say it.",
+  },
+  {
+    id: "breathing",
+    match: ["breathe", "breathing", "breath", "تنفس", "أتنفس"],
+    weight: 2,
+    needs: null,
+    reply: () => "Use the breathing exercise in “Before the spotlight”: in 4, hold 2, out 6, three rounds. " +
+      "The words are fixed and the circle grows as you breathe in, so you can follow it without reading.",
+  },
+  {
+    id: "how_to_record",
+    match: ["how do i record", "how to record", "start recording", "microphone not working",
+            "mic", "كيف اسجل", "الميكروفون"],
+    weight: 2,
+    needs: null,
+    reply: () => "Press “Start speaking” on the home screen and talk for at least 30 seconds. " +
+      "If the microphone is not working, use “Check my microphone” first — it tells you whether the browser can hear you.",
+  },
+  {
+    id: "languages",
+    match: ["language", "languages", "arabic model", "which language",
+            "لغة", "لغات"],
+    weight: 2,
+    needs: null,
+    reply: () => "The app measures 15 languages. Word counting and fillers work in each of them. " +
+      "Chinese and Japanese report no words-per-minute because those languages are written without spaces — " +
+      "the page says “not comparable” rather than showing a number that would mean nothing.",
+  },
+  {
+    id: "how_scored",
+    match: ["score", "score work", "how is my score", "grade", "rating",
+            "النتيجة", "تقييم"],
+    weight: 2,
+    needs: null,
+    reply: () => "The score is a weighted summary of measured things: pace 40%, fillers 40%, pauses 20%. " +
+      "It is not a judgement of you as a speaker, and nothing in the calm section is scored at all.",
+  },
+  {
+    id: "volume",
+    match: ["volume", "loud", "quiet", "too quiet", "level", "db", "project",
+            "صوت", "بصوت", "عالي", "واطي"],
+    weight: 2,
+    needs: "data",
+    reply: ({ tools }) => {
+      const v = tools.voice_level;
+      if (!v) return "This session has no volume figure.";
+      return "Your average volume was " + v.value_db + " dBFS" +
+        (v.peak_db != null ? ", peaking at " + v.peak_db : "") + ". " + v.verdict +
+        ". Browser microphones are uncalibrated, so this is relative to your own recording, never comparable between people.";
+    },
+  },
+  {
+    id: "steadiness",
+    match: ["steady", "steadiness", "shaky", "shake", "shakes", "shaking", "shook",
+            "waver", "wavered", "wobble", "pitch", "tremble", "trembling", "trembled",
+            "صوتي", "يرتجف", "ارتجاف"],
+    weight: 3,
+    needs: null,
+    reply: ({ tools }) => {
+      const base = "Voice steadiness measures how much your pitch moves — steady, varied or unsteady. " +
+        "It never reports “nervous”, because a microphone cannot tell nerves from a cold or the room.";
+      if (tools && tools.pitch_cv != null) {
+        return base + " Last session it was " + tools.pitch_cv + "%.";
+      }
+      return base;
+    },
+  },
+  {
+    id: "progress",
+    match: ["progress", "improve", "better than", "compare", "history",
+            "تقدم", "تحسن"],
+    weight: 2,
+    needs: null,
+    reply: () => "Open the progress screen: it compares your last two sessions, shows your best pace, " +
+      "achievements, and a training plan built from the weakest thing you actually measured.",
+  },
+  {
+    id: "practice_plan",
+    match: ["plan", "practice", "practise", "train", "drill", "exercise",
+            "خطة", "تدريب", "تمرين"],
+    weight: 2,
+    needs: null,
+    reply: () => "Your training plan on the progress screen is built from your last session's weakest measurement, " +
+      "not a generic template. Each task names why it was chosen and takes four to six minutes.",
+  },
+  {
+    id: "session_length",
+    match: ["how long", "minutes", "duration", "كم دقيقة"],
+    weight: 2,
+    needs: null,
+    reply: () => "Record at least 30 seconds — under 20 seconds of speech, words-per-minute is arithmetic noise, " +
+      "so the page reports “too short to measure” rather than a number.",
+  },
+  {
+    id: "file_upload",
+    match: ["file", "attach", "upload", "document", "csv",
+            "ملف", "ارفع"],
+    weight: 2,
+    needs: null,
+    reply: () => "Use the paperclip in this chat to attach a text file (.txt, .md, .csv, .json, .srt, .vtt). " +
+      "Images and PDFs are refused on purpose: I cannot read them, and guessing would be worse than saying so.",
+  },
+  {
+    id: "privacy",
+    match: ["privacy", "private", "safe", "who sees", "stored", "upload my voice",
+            "خصوصية", "بياناتي"],
+    weight: 3,
+    needs: null,
+    reply: () => "Measurements are computed on your own device and saved locally. When Cohere transcription is on, " +
+      "your recording is sent to be transcribed — the page states this in the footer. Nothing is uploaded when no key is set.",
+  },
+  {
+    id: "offline",
+    match: ["offline", "no internet", "without internet", "local",
+            "بدون نت", "انترنت"],
+    weight: 2,
+    needs: null,
+    reply: () => "Everything except transcription works without internet: recording, pace, fillers, pauses, " +
+      "voice level, steadiness, the heatmap and progress. Transcription needs a Cohere key and a connection.",
+  },
+  {
+    id: "audience",
+    match: ["audience", "question from the judge", "interview", "oral exam", "examiner",
+            "مقابلة", "امتحان شفهي"],
+    weight: 2,
+    needs: null,
+    reply: () => "The audience simulator on the report screen asks judge-style questions. Answer out loud, " +
+      "and it measures how you delivered the answer — pace, fillers, pauses — not whether the answer was right.",
+  },
+  {
+    id: "thanks",
+    match: ["thanks", "thank you", "شكرا", "شكراً"],
+    weight: 1,
+    needs: null,
+    reply: () => "You are welcome. Record once more when you are ready and I will tell you what changed.",
+  },
+  {
+    id: "who_are_you",
+    match: ["who are you", "what can you do", "what do you do", "help me",
+            "من انت", "شنو تسوي", "ساعدني"],
+    weight: 2,
+    needs: null,
+    reply: () => "I am the PRESENCE AI coach. I read your measured sessions and answer about pace, fillers, " +
+      "freezes, steadiness and nerves. I will not invent a number — if something was not measured, I say so.",
+  },
+];
+
+/**
+ * Score every rule against the question and return the best match.
+ *
+ * Longer keywords score more, so "words per minute" beats a bare "wpm" and
+ * "how long" is not overridden by "long".
+ */
+function matchCoachRule(question) {
+  const q = String(question || "").toLowerCase();
+
+  let best = null;
+  let bestScore = 0;
+
+  for (const rule of COACH_RULES) {
+    let score = 0;
+    for (const term of rule.match) {
+      const t = term.toLowerCase();
+      if (!t) continue;
+      // Arabic and other non-ASCII terms: plain substring. ASCII: word boundary,
+      // so "um" does not match inside "number".
+      const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Allow a trailing s / es / ing on ASCII keywords, so "filler" also
+      // matches "fillers" and "pause" matches "pauses" and "pausing".
+      const hit = /^[\x00-\x7f]+$/.test(t)
+        ? new RegExp("\\b" + escaped + "(?:s|es|ing)?\\b").test(q)
+        : q.indexOf(t) >= 0;
+      if (hit) score += 1 + t.length / 10;
+    }
+    if (score <= 0) continue;
+    score += rule.weight || 0;
+    if (score > bestScore) {
+      bestScore = score;
+      best = rule;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Answer from the rule set.
+ *
+ * `problem` is returned when a rule needs a recording and none exists, so the
+ * caller can decide how to phrase it. Nothing is invented to fill the gap.
+ */
+function answerFromRules(question, tools) {
+  const rule = matchCoachRule(question);
+  if (!rule) {
+    return {
+      text: "I can answer about pace, fillers, freezes, steadiness, nerves, languages, privacy and how the app works — " +
+        "all from what this page actually measures. For anything else, ask your teacher. I will not invent advice " +
+        "about things this tool cannot see.",
+      matched: null,
+    };
+  }
+
+  if (rule.needs === "data" && !tools) {
+    return {
+      text: "I can only answer that from a real recording — I do not estimate. Record 30 seconds, then ask again.",
+      matched: rule.id,
+      needsData: true,
+    };
+  }
+
+  return { text: rule.reply({ tools }), matched: rule.id };
+}
+
+/**
+ * Compatibility wrapper: the chat calls this and expects a string.
+ * The rules live in COACH_RULES / answerFromRules above.
+ */
 function localAnswer(question) {
-  const q = question.toLowerCase();
   const report = lastReport();
   const tools = report && report.tools ? report.tools : null;
-
-  const needData = "I can only answer that from a real recording — I do not estimate. " +
-    "Record 30 seconds, then ask again.";
-
-  if (/first|start|work on|priorit/.test(q)) {
-    if (!tools) return needData;
-    const frz = tools.silence ? tools.silence.count : 0;
-    const f = tools.fillers ? tools.fillers.total : 0;
-    const wpm = tools.words_per_minute ? tools.words_per_minute.value : null;
-    if (frz >= 2) return "Your freezes come first — " + frz + " long silences. Practise the first sentence of each slide until it is automatic; that is where the freeze starts.";
-    if (f > 5) return "Fillers first: " + f + " in your last attempt. Pause instead of filling.";
-    if (wpm != null && wpm > config.targetWpm + 20) return "Pace first. You spoke at " + Math.round(wpm) + " wpm; your target is " + config.targetWpm + ".";
-    return "Nothing is badly out of range. Repeat the same passage once more to confirm it was not a one-off.";
-  }
-
-  if (/freeze|blank|stuck/.test(q)) {
-    return "When you freeze, do not hunt for the perfect word — say the sentence a simpler way. Short sentences give you somewhere to land.";
-  }
-  if (/filler|um|uh|\u064a\u0639\u0646\u064a/.test(q)) {
-    if (!tools) return needData;
-    const f = tools.fillers ? tools.fillers.total : 0;
-    return f ? "You used " + f + " filler" + (f === 1 ? "" : "s") + ". They usually cluster where you translate — try that sentence in Arabic first, then in English." 
-             : "No fillers were detected in your last recording. That is a real result.";
-  }
-  if (/wpm|speed|fast|slow|pace/.test(q)) {
-    if (!tools || !tools.words_per_minute) return needData;
-    const t = tools.words_per_minute;
-    if (t.comparable === false) return "This language has no spaces between words, so words-per-minute is not comparable. Use delivery shape instead.";
-    return "You spoke at " + t.value + " wpm against a target band of " + t.target + ". " + t.verdict + ".";
-  }
-  if (/nervous|stress|anxious|scared|calm/.test(q)) {
-    return "That is normal, and it is not a skill problem. Breathe in for 4, hold 2, out for 6 — three times. Then say only your first sentence out loud. Starting is what calms you; feeling calm first is not required.";
-  }
-  if (/arabic|translate|\u0639\u0631\u0628\u064a/.test(q)) {
-    return "Translating in your head is why the pauses are long. Shorten the unit: translate one clause, not one paragraph, then say it.";
-  }
-  return "I can answer about pace, fillers, freezes and nerves — from your actual measurements. For anything else, ask your teacher. I will not invent advice about things this tool does not measure.";
+  return answerFromRules(question, tools).text;
 }
 
 /* ==================================================== chat file attachment */

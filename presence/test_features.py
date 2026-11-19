@@ -633,6 +633,53 @@ class TestLiveFeatures(unittest.TestCase):
         self.assertEqual(block.count("attachment: attachedContext()"), 2,
                          "both the LLM and agent paths must carry the file")
 
+    def test_rule_based_coach_exists(self):
+        self.assertIn("const COACH_RULES", self.js)
+        self.assertIn("function matchCoachRule", self.js)
+        self.assertIn("function answerFromRules", self.js)
+
+    def test_rule_set_covers_the_core_topics(self):
+        """Every topic a student actually asks about has a rule."""
+        ids = set(__import__("re").findall(r'id: "([a-z_]+)"', self.js))
+        for needed in ("pace", "fillers", "pauses", "freezes", "nerves",
+                       "steadiness", "volume", "arabic_translation",
+                       "progress", "practice_plan", "privacy", "languages"):
+            self.assertIn(needed, ids, f"no rule for {needed}")
+
+    def test_rules_understand_arabic(self):
+        """The student may type in either language."""
+        start = self.js.index("const COACH_RULES")
+        block = self.js[start:self.js.index("function matchCoachRule")]
+        arabic = __import__("re").findall(r'"[\u0600-\u06ff]{2,}"', block)
+        self.assertGreater(len(arabic), 20, "Arabic keywords are missing")
+
+    def test_rules_allow_plurals(self):
+        """'fillers' and 'pausing' must reach the same rule as the singular."""
+        self.assertIn("(?:s|es|ing)?", self.js)
+
+    def test_data_rules_refuse_without_a_recording(self):
+        start = self.js.index("function answerFromRules")
+        block = self.js[start:self.js.index("/* ==================================================== chat file attachment")]
+        self.assertIn('rule.needs === "data"', block)
+        self.assertIn("I do not estimate", block)
+
+    def test_no_match_is_honest(self):
+        start = self.js.index("function answerFromRules")
+        block = self.js[start:self.js.index("/* ==================================================== chat file attachment")]
+        self.assertIn("ask your teacher", block)
+        self.assertIn("will not invent", block)
+
+    def test_rules_never_invent_a_number(self):
+        """
+        A rule that quotes a measurement must read it from the session, never
+        hardcode an example figure into its text.
+        """
+        start = self.js.index("const COACH_RULES")
+        block = self.js[start:self.js.index("function matchCoachRule")]
+        # No literal wpm/db figures baked into replies.
+        import re
+        self.assertNotRegex(block, r"\d+\s*wpm\b(?! \")")
+
     def test_local_answer_admits_it_did_not_read_the_file(self):
         """
         Without an AI endpoint the file is not read. Saying so is the honest
@@ -668,8 +715,12 @@ class TestLiveFeatures(unittest.TestCase):
         self.assertIn("__llmEndpoint", self.js)
 
     def test_chat_never_invents_numbers_without_a_session(self):
-        start = self.js.index("function localAnswer")
-        end = self.js.index("async function sendChat")
+        """
+        The guard moved from localAnswer into the rule engine, so this checks
+        the behaviour where it now lives rather than a specific function name.
+        """
+        start = self.js.index("function answerFromRules")
+        end = self.js.index("/* ==================================================== chat file attachment")
         body = self.js[start:end]
         self.assertIn("I do not estimate", body)
 
