@@ -127,6 +127,23 @@ Page looks old
     Press Cmd+Shift+R to hard-reload.
 
 
+UPDATING FROM GITHUB  (if you cloned, instead of using the zip)
+----------------------------------------------------------------
+  python3 update_app.py
+
+That pulls the latest version and keeps your Cohere key. It also tells you
+what went wrong if the pull fails, including the token-vs-password case.
+
+If the folder is a downloaded zip, this script says so plainly: a zip is not
+a git repository and cannot be pulled. Clone once instead:
+
+  git clone https://github.com/siudro/presence-ai.git
+
+When GitHub asks for a password, use a personal access token, NOT your
+account password (GitHub removed password auth). Create one at
+https://github.com/settings/tokens and tick the 'repo' scope.
+
+
 RUN THE TESTS  (and see the results)
 ------------------------------------
 Two commands, both print what they did:

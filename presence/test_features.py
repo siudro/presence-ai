@@ -1184,7 +1184,9 @@ class TestVoiceSteadiness(unittest.TestCase):
         """Run the real JS estimator over a 150 Hz tone."""
         import json
         import subprocess
-        js = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "static", "app.js"), encoding="utf-8") as _fh:
+
+            js = _fh.read()
         start = js.index("const PITCH_MIN_HZ")
         end = js.index("function spokenText()")
         block = js[start:end]
@@ -1206,7 +1208,9 @@ class TestVoiceSteadiness(unittest.TestCase):
     def test_js_estimator_rejects_silence(self):
         import json
         import subprocess
-        js = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "static", "app.js"), encoding="utf-8") as _fh:
+
+            js = _fh.read()
         block = js[js.index("const PITCH_MIN_HZ"):js.index("function spokenText()")]
         silent = [0.0] * 1024
         script = block + "\nconst data = " + json.dumps(silent) + ";\nconsole.log(JSON.stringify({f0: estimatePitch(data, 16000)}));"
@@ -1217,7 +1221,9 @@ class TestVoiceSteadiness(unittest.TestCase):
     def test_pitch_variability_needs_enough_frames(self):
         import json
         import subprocess
-        js = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "static", "app.js"), encoding="utf-8") as _fh:
+
+            js = _fh.read()
         block = js[js.index("const PITCH_MIN_HZ"):js.index("function spokenText()")]
         # Three frames is not enough to judge.
         script = block + "\nconsole.log(JSON.stringify({cv: pitchVariability([150,151,149])}));"
@@ -1228,7 +1234,9 @@ class TestVoiceSteadiness(unittest.TestCase):
     def test_steady_tone_reads_low_variation(self):
         import json
         import subprocess
-        js = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "static", "app.js"), encoding="utf-8") as _fh:
+
+            js = _fh.read()
         block = js[js.index("const PITCH_MIN_HZ"):js.index("function spokenText()")]
         script = block + "\nconsole.log(JSON.stringify({cv: pitchVariability(Array(20).fill(150))}));"
         out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
@@ -1239,14 +1247,18 @@ class TestVoiceSteadiness(unittest.TestCase):
         The output is steadiness, not affect. A trembling voice is not
         evidence of nervousness, and saying so would be a false claim.
         """
-        js = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "static", "app.js"), encoding="utf-8") as _fh:
+
+            js = _fh.read()
         start = js.index("function steadinessLabel")
         block = js[start:js.index("function spokenText()")]
         for banned in ("nervous", "anxious", "confident", "afraid", "scared", "stressed"):
             self.assertNotIn(banned, block.lower(), f"{banned} must not appear")
 
     def test_steadiness_tiles_exist(self):
-        html = open(os.path.join(HERE, "static", "index.html"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "static", "index.html"), encoding="utf-8") as _fh:
+
+            html = _fh.read()
         self.assertIn('id="liveSteady"', html)
         self.assertIn('id="finalSteady"', html)
 
@@ -1295,7 +1307,9 @@ class TestNewFeatures(unittest.TestCase):
 
     def test_level_meter_has_no_fake_animation(self):
         """A CSS timer driving the bars would be decoration pretending to measure."""
-        css = open(os.path.join(HERE, "static", "app.css"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "static", "app.css"), encoding="utf-8") as _fh:
+
+            css = _fh.read()
         self.assertNotIn("animation: idle", css)
 
     def test_level_meter_bars_are_built_not_hardcoded(self):
@@ -1446,6 +1460,68 @@ class TestLongSessionCapacity(unittest.TestCase):
         self.assertEqual(len(session.timeline), 30)
 
 
+class TestPullWorkflow(unittest.TestCase):
+    """
+    The student prefers `git pull` over downloading zips, so the repo must be
+    complete enough to run, and an update must never destroy a saved key.
+    """
+
+    def test_update_script_exists(self):
+        self.assertTrue(os.path.isfile(os.path.join(HERE, "update_app.py")))
+
+    def test_update_script_backs_up_the_key_first(self):
+        """A pull must not be able to lose a key it did not touch."""
+        with open(os.path.join(HERE, "update_app.py"), encoding="utf-8") as _fh:
+
+            src = _fh.read()
+        self.assertIn("BACKUP", src)
+        backup_at = src.index("shutil.copyfile(KEY, BACKUP)")
+        pull_at = src.index('"pull"')
+        self.assertLess(backup_at, pull_at, "backup must happen before the pull")
+
+    def test_update_script_explains_the_zip_case(self):
+        """A downloaded zip is not a git checkout; say so rather than crash."""
+        with open(os.path.join(HERE, "update_app.py"), encoding="utf-8") as _fh:
+
+            src = _fh.read()
+        self.assertIn("not a git checkout", src)
+        self.assertIn("git clone", src)
+
+    def test_key_file_is_not_tracked_by_git(self):
+        """
+        api_key.txt must stay out of the repo: it holds a secret, and a pull
+        should never overwrite the student's local key with someone else's.
+        """
+        gi = os.path.join(HERE, os.pardir, ".gitignore")
+        alt = os.path.join(HERE, ".gitignore")
+        text = ""
+        for path in (gi, alt):
+            if os.path.isfile(path):
+                text = open(path, encoding="utf-8").read()
+                break
+        if not text:
+            self.skipTest("no .gitignore here (checkout root holds it)")
+        self.assertIn("api_key.txt", text)
+
+    def test_saving_a_key_creates_the_file_on_a_fresh_clone(self):
+        """
+        api_key.txt is gitignored, so a fresh clone has none. Saving must
+        create it rather than fail.
+        """
+        import pathlib
+        import tempfile
+        original = app.API_KEY_FILE
+        with tempfile.TemporaryDirectory() as d:
+            app.API_KEY_FILE = pathlib.Path(d) / "api_key.txt"
+            try:
+                self.assertFalse(app.API_KEY_FILE.exists())
+                self.assertTrue(app.save_key_to_file("FRESH-CLONE-KEY-123"))
+                self.assertTrue(app.API_KEY_FILE.exists())
+            finally:
+                app.API_KEY_FILE = original
+                app.clear_runtime_key()
+
+
 class TestTerminalTooling(unittest.TestCase):
     """
     The student asked to SEE results in the terminal. Two scripts exist for
@@ -1457,7 +1533,9 @@ class TestTerminalTooling(unittest.TestCase):
         self.assertTrue(os.path.isfile(path))
 
     def test_runner_reports_groups_not_just_ok(self):
-        src = open(os.path.join(HERE, "run_all_tests.py"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "run_all_tests.py"), encoding="utf-8") as _fh:
+
+            src = _fh.read()
         self.assertIn("Results by group", src)
         self.assertIn("GroupReporter", src)
 
@@ -1466,20 +1544,26 @@ class TestTerminalTooling(unittest.TestCase):
         self.assertTrue(os.path.isfile(path))
 
     def test_connection_checker_covers_every_service(self):
-        src = open(os.path.join(HERE, "check_connections.py"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "check_connections.py"), encoding="utf-8") as _fh:
+
+            src = _fh.read()
         self.assertIn("api.cohere.com", src)
         self.assertIn("generativelanguage.googleapis.com", src)
         self.assertIn("llm_config.json", src)
 
     def test_connection_checker_never_prints_a_full_key(self):
         """It is meant to be screenshot-able for the PDF."""
-        src = open(os.path.join(HERE, "check_connections.py"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "check_connections.py"), encoding="utf-8") as _fh:
+
+            src = _fh.read()
         self.assertIn('"…" + key[-4:]', src)
         # And it must not print the key variable directly.
         self.assertNotIn('print(key', src)
 
     def test_connection_checker_reports_failures_honestly(self):
-        src = open(os.path.join(HERE, "check_connections.py"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "check_connections.py"), encoding="utf-8") as _fh:
+
+            src = _fh.read()
         self.assertIn("FAIL", src)
         self.assertIn("return 1", src)
 
@@ -1493,7 +1577,9 @@ class TestNoHiddenDependencies(unittest.TestCase):
 
     def test_node_tests_skip_when_node_is_absent(self):
         import re
-        src = open(os.path.join(HERE, "test_features.py"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "test_features.py"), encoding="utf-8") as _fh:
+
+            src = _fh.read()
         self.assertIn("def node_available", src)
         guards = re.findall(r'@unittest\.skipUnless\(node_available\(\)', src)
         self.assertEqual(len(guards), 4, "all four node tests need the guard")
@@ -1504,7 +1590,9 @@ class TestNoHiddenDependencies(unittest.TestCase):
         on a machine without that tool.
         """
         import re
-        src = open(os.path.join(HERE, "test_features.py"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "test_features.py"), encoding="utf-8") as _fh:
+
+            src = _fh.read()
         calls = re.findall(r'subprocess\.run\(\["([\w-]+)"', src)
         self.assertTrue(all(c == "node" for c in calls),
                         f"unexpected external binary: {set(calls)}")
@@ -1513,7 +1601,9 @@ class TestNoHiddenDependencies(unittest.TestCase):
 
     def test_runner_counts_skips_separately_from_passes(self):
         """A skip is not a pass; the summary must say so."""
-        src = open(os.path.join(HERE, "run_all_tests.py"), encoding="utf-8").read()
+        with open(os.path.join(HERE, "run_all_tests.py"), encoding="utf-8") as _fh:
+
+            src = _fh.read()
         self.assertIn('"skip"', src)
         self.assertIn("skipped", src)
 
