@@ -1,8 +1,10 @@
 # Never commit secrets or runtime data.
 api_key.txt
+llm_api_key.txt
 llm_config.json
 sessions.jsonl
 __pycache__/
 *.pyc
 .upload_*
 coach_queue/
+.api_key.backup

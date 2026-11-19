@@ -33,6 +33,7 @@ import json
 import math
 import os
 import re
+import sys
 import time
 import uuid
 from collections import deque
@@ -61,6 +62,16 @@ SESSIONS_FILE = HERE / "sessions.jsonl"
 # Keeping it in a file means a student can paste one line and run, and the key
 # never appears in their shell history.
 API_KEY_FILE = HERE / "api_key.txt"
+
+# The AI-chat key lives in its own file so it can never be confused with the
+# Cohere transcription key. Both are gitignored.
+LLM_KEY_FILE = HERE / "llm_api_key.txt"
+
+# Set while the startup test run is in progress: the suite starts its own
+# server, and its access log would bury the startup output this window exists
+# to show. Defined here, ABOVE the Handler class, because the class body
+# references it at call time.
+SUPPRESS_ACCESS_LOG = False
 MAX_AUDIO_BYTES = 25 * 1024 * 1024  # Cohere's documented limit
 
 # ---------------------------------------------------------------------------
@@ -1192,6 +1203,45 @@ def strip_quotes(value: str) -> str:
 
 
 
+def read_llm_key(cfg: Optional[dict] = None) -> str:
+    """
+    The AI-chat key, from the same places the Cohere key uses.
+
+    It was read ONLY from an environment variable, so a key pasted into the
+    app's Settings did nothing for the chat — which is exactly why a paid key
+    appeared not to work. Order: the file the page writes, then the env var
+    named in llm_config.json, then LLM_API_KEY.
+    """
+    try:
+        if LLM_KEY_FILE.is_file():
+            key = normalise_key(LLM_KEY_FILE.read_text(encoding="utf-8"))
+            if key:
+                return key
+    except OSError:
+        pass
+
+    env_name = (cfg or {}).get("api_key_env") or "LLM_API_KEY"
+    return (os.environ.get(env_name) or "").strip() or (os.environ.get("LLM_API_KEY") or "").strip()
+
+
+def save_llm_key(value: str) -> bool:
+    """Persist the chat key. Same 0600 treatment as the Cohere key."""
+    try:
+        LLM_KEY_FILE.write_text(
+            "# AI chat key. Written by the app when you paste a key in Settings.\n"
+            "# Keep this file private. It is gitignored.\n"
+            + value.strip() + "\n",
+            encoding="utf-8",
+        )
+        try:
+            os.chmod(LLM_KEY_FILE, 0o600)
+        except OSError:
+            pass
+        return True
+    except OSError:
+        return False
+
+
 def save_key_to_file(value: str) -> bool:
     """
     Persist a key to api_key.txt so it survives a server restart.
@@ -1396,6 +1446,8 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "PresenceAI/1.0"
 
     def log_message(self, fmt: str, *args) -> None:  # quieter logs
+        if SUPPRESS_ACCESS_LOG:
+            return
         print(f"[presence] {self.address_string()} {fmt % args}", flush=True)
 
     def _send(self, code: int, body: bytes, ctype: str) -> None:
@@ -1588,9 +1640,20 @@ class Handler(BaseHTTPRequestHandler):
 
         url = cfg["base_url"].rstrip("/") + "/chat/completions"
         headers = {"Content-Type": "application/json"}
-        key = os.environ.get(cfg.get("api_key_env") or "LLM_API_KEY", "").strip()
+        # Reads llm_api_key.txt first, then the env var — so a key pasted in
+        # Settings works without restarting anything.
+        key = read_llm_key(cfg)
         if key:
             headers["Authorization"] = "Bearer " + key
+
+        # Everything the server does is printed here, in the same Terminal
+        # window as `python3 app.py`, so the student can watch it work.
+        model_name = cfg.get("model", "?")
+        log_step(f"LLM  → {model_name} at {cfg['base_url']}")
+        log_step(f"LLM    key {('…' + key[-4:]) if key else '(none)'}  "
+                 f"question {question[:60]!r}"
+                 + (f"  +attachment {len(attachment)} chars" if attachment else ""))
+        started = time.time()
 
         try:
             import urllib.request as _ur
@@ -1602,15 +1665,23 @@ class Handler(BaseHTTPRequestHandler):
             )
             with _ur.urlopen(req, timeout=cfg.get("timeout", 25)) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
+            elapsed = time.time() - started
             answer = ""
             choices = data.get("choices") or []
             if choices:
                 answer = (choices[0].get("message") or {}).get("content", "")
             answer = (answer or "").strip()
             if not answer:
+                log_step("LLM  ← empty completion", ok=False)
                 return self._json(502, {"error": "empty_completion"})
-            return self._json(200, {"answer": answer, "provider": cfg.get("provider", "custom")})
+            log_step(f"LLM  ← {len(answer)} chars in {elapsed:.1f}s", ok=True)
+            return self._json(200, {
+                "answer": answer,
+                "provider": cfg.get("provider", "custom"),
+                "model": model_name,
+            })
         except Exception as exc:  # noqa: BLE001 - report, never crash the page
+            log_step(f"LLM  ← FAILED: {str(exc)[:120]}", ok=False)
             return self._json(502, {"error": "llm_request_failed", "message": str(exc)[:200]})
 
     def _handle_chat(self) -> None:
@@ -1752,15 +1823,132 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, target.read_bytes(), ctype)
 
 
+# ---------------------------------------------------------------------------
+# Console output.
+#
+# The student asked to SEE activity in the same Terminal window as
+# `python3 app.py`, not in a separate script. Every line here goes to that
+# window, with a timestamp so the order of events is readable.
+# ---------------------------------------------------------------------------
+
+USE_COLOUR = sys.stdout.isatty()
+
+
+def _c(text: str, code: str) -> str:
+    return f"\033[{code}m{text}\033[0m" if USE_COLOUR else text
+
+
+def log_step(message: str, ok: Optional[bool] = None) -> None:
+    """
+    One line of activity in the Terminal running the server.
+
+    ok=True adds a tick, ok=False a cross, None a bullet. Timestamps make the
+    ordering obvious when several requests overlap.
+    """
+    stamp = datetime.now().strftime("%H:%M:%S")
+    if ok is True:
+        mark = _c("OK  ", "92")
+    elif ok is False:
+        mark = _c("FAIL", "91")
+    else:
+        mark = _c(" •  ", "36")
+    print(f"  [{stamp}] {mark} {message}", flush=True)
+
+
+def run_startup_checks() -> None:
+    """
+    Run the test suite when the server starts, and print the result.
+
+    The student asked to see the tests in the same process as `python3 app.py`.
+    The suite is fast (under a second) and read-only, so running it here costs
+    nothing and proves the code that is about to serve requests actually works.
+    """
+    print()
+    log_step("Running test suite…")
+    started = time.time()
+
+    # The suite starts its own server, whose access log would otherwise bury
+    # the startup output this window exists to show. Silence it for the run.
+    global SUPPRESS_ACCESS_LOG
+    SUPPRESS_ACCESS_LOG = True
+    try:
+        import io
+        import unittest
+
+        total = 0
+        failed = 0
+        skipped = 0
+        for module_name in ("test_app", "test_features"):
+            try:
+                module = __import__(module_name)
+            except Exception as exc:  # noqa: BLE001
+                log_step(f"{module_name}: could not import ({str(exc)[:60]})", ok=False)
+                failed += 1
+                continue
+            suite = unittest.TestLoader().loadTestsFromModule(module)
+            stream = io.StringIO()
+            result = unittest.TextTestRunner(stream=stream, verbosity=0).run(suite)
+            total += result.testsRun
+            failed += len(result.failures) + len(result.errors)
+            skipped += len(result.skipped)
+
+        elapsed = time.time() - started
+        if failed:
+            log_step(f"Tests: {total - failed} passed, {failed} FAILED ({elapsed:.2f}s)", ok=False)
+            log_step("The app will still start, but something is broken.", ok=False)
+        else:
+            note = f", {skipped} skipped" if skipped else ""
+            log_step(f"Tests: all {total - skipped} passed{note} ({elapsed:.2f}s)", ok=True)
+    except Exception as exc:  # noqa: BLE001
+        log_step(f"Tests could not run: {str(exc)[:80]}", ok=False)
+    finally:
+        SUPPRESS_ACCESS_LOG = False
+
+
+def print_configuration() -> None:
+    """Show what is and is not configured, before any request arrives."""
+    cohere = read_api_key()
+    if cohere:
+        log_step(f"Cohere transcription key {_c('…' + cohere[-4:], '92')}", ok=True)
+    else:
+        log_step("Cohere key not set — transcripts will not appear", ok=False)
+
+    cfg = load_llm_config()
+    if not cfg:
+        log_step("No llm_config.json — the chat uses built-in rules")
+        return
+
+    key = read_llm_key(cfg)
+    if key:
+        log_step(f"AI chat: {cfg.get('model')}  key {_c('…' + key[-4:], '92')}", ok=True)
+    else:
+        log_step(f"AI chat configured ({cfg.get('model')}) but no key — "
+                 "paste one in Settings", ok=False)
+
+
 def main() -> None:
     port = int(os.environ.get("PORT") or 8080)
     host = os.environ.get("HOST") or "0.0.0.0"
+
+    print()
+    print(_c("  PRESENCE AI", "1"), _c("— pacing coach", "2"))
+    print(f"  {'-' * 56}")
+
+    run_startup_checks()
+    print_configuration()
+
     server = ThreadingHTTPServer((host, port), Handler)
-    print(f"[presence] PRESENCE AI measuring tool on http://{host}:{port}", flush=True)
+    print()
+    log_step(f"Server listening on {_c(f'http://localhost:{port}', '92')}", ok=True)
+    log_step("Every chat request and tool use will appear below.")
+    log_step("Press Ctrl+C to stop.")
+    print()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        pass
+        print()
+        log_step("Stopped.")
     finally:
         server.server_close()
 

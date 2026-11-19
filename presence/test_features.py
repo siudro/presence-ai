@@ -1460,6 +1460,90 @@ class TestLongSessionCapacity(unittest.TestCase):
         self.assertEqual(len(session.timeline), 30)
 
 
+class TestServerConsole(unittest.TestCase):
+    """
+    The student asked to watch tests and chat activity inside `python3 app.py`
+    itself, not in a separate script.
+    """
+
+    def test_startup_runs_the_test_suite(self):
+        src = open(app.__file__, encoding="utf-8").read()
+        self.assertIn("def run_startup_checks", src)
+        # It must be called from main(), which is what `python3 app.py` runs.
+        main_start = src.index("def main() -> None:")
+        main_body = src[main_start:main_start + 1200]
+        self.assertIn("run_startup_checks()", main_body)
+
+    def test_startup_reports_configuration(self):
+        src = open(app.__file__, encoding="utf-8").read()
+        self.assertIn("def print_configuration", src)
+        main_start = src.index("def main() -> None:")
+        self.assertIn("print_configuration()", src[main_start:main_start + 1200])
+
+    def test_chat_requests_are_logged_in_the_same_process(self):
+        """Every LLM call must print a line the student can see."""
+        src = open(app.__file__, encoding="utf-8").read()
+        start = src.index("def _handle_llm")
+        body = src[start:start + 6000]
+        self.assertIn("log_step", body)
+        self.assertIn("LLM  →", body)
+        self.assertIn("LLM  ←", body)
+
+    def test_access_log_is_suppressed_during_startup_tests(self):
+        """
+        Otherwise the suite's own HTTP requests bury the output.
+
+        The flag is legitimately True WHILE the startup run is executing, so
+        this checks the mechanism rather than the current value — asserting a
+        fixed value made the test fail precisely when the feature was working.
+        """
+        src = open(app.__file__, encoding="utf-8").read()
+        self.assertIn("def run_startup_checks", src)
+        start = src.index("def run_startup_checks")
+        block = src[start:start + 2500]
+        self.assertIn("SUPPRESS_ACCESS_LOG = True", block)
+        self.assertIn("SUPPRESS_ACCESS_LOG = False", block, "must restore afterwards")
+        # And the handler must honour it.
+        handler_at = src.index("def log_message")
+        self.assertIn("SUPPRESS_ACCESS_LOG", src[handler_at:handler_at + 300])
+
+    def test_llm_key_can_come_from_the_settings_file(self):
+        """
+        The key was read ONLY from an environment variable, so a key pasted in
+        Settings did nothing for the chat — a paid key appeared not to work.
+        """
+        import pathlib
+        import tempfile
+        original = app.LLM_KEY_FILE
+        with tempfile.TemporaryDirectory() as d:
+            app.LLM_KEY_FILE = pathlib.Path(d) / "llm_api_key.txt"
+            try:
+                self.assertTrue(app.save_llm_key("sk-from-settings-1234"))
+                self.assertEqual(app.read_llm_key({}), "sk-from-settings-1234")
+            finally:
+                app.LLM_KEY_FILE = original
+
+    def test_openai_config_exists_and_is_valid(self):
+        cfg = json.load(open(os.path.join(HERE, "llm_config.openai.json"), encoding="utf-8"))
+        self.assertEqual(cfg["provider"], "openai")
+        self.assertEqual(cfg["base_url"], "https://api.openai.com/v1")
+        self.assertTrue(cfg["model"])
+        self.assertEqual(cfg["api_key_env"], "OPENAI_API_KEY")
+
+    def test_tests_do_not_delete_a_real_llm_config(self):
+        """
+        A test used to write llm_config.json then delete it in finally,
+        destroying a real config on every run.
+        """
+        src = open(os.path.join(HERE, "test_features.py"), encoding="utf-8").read()
+        # Look for an actual CALL at statement position, not the string inside
+        # this very assertion (which would match itself).
+        import re
+        calls = re.findall(r"^\s+os\.remove\(dst\)\s*$", src, re.M)
+        self.assertEqual(calls, [], "a test must not delete the real llm_config.json")
+        self.assertIn("tempfile.TemporaryDirectory", src)
+
+
 class TestPullWorkflow(unittest.TestCase):
     """
     The student prefers `git pull` over downloading zips, so the repo must be
@@ -1637,16 +1721,28 @@ class TestFreeLlmProvider(unittest.TestCase):
             self.assertNotIn("AIza", str(value), "looks like a real Google key")
 
     def test_server_loads_the_gemini_config(self):
-        import shutil
-        src = os.path.join(HERE, "llm_config.gemini.json")
-        dst = os.path.join(HERE, "llm_config.json")
-        shutil.copyfile(src, dst)
-        try:
-            cfg = app.load_llm_config()
-            self.assertIsNotNone(cfg)
-            self.assertEqual(cfg["provider"], "gemini")
-        finally:
-            os.remove(dst)
+        """
+        Load the config through the real loader WITHOUT touching any file the
+        student owns. This test used to write llm_config.json and delete it in
+        finally — destroying a real config on every test run.
+        """
+        import pathlib
+        import tempfile
+
+        original = app.HERE
+        with tempfile.TemporaryDirectory() as d:
+            path = pathlib.Path(d) / "llm_config.json"
+            path.write_text(
+                open(os.path.join(HERE, "llm_config.gemini.json"), encoding="utf-8").read(),
+                encoding="utf-8",
+            )
+            app.HERE = pathlib.Path(d)
+            try:
+                cfg = app.load_llm_config()
+                self.assertIsNotNone(cfg)
+                self.assertEqual(cfg["provider"], "gemini")
+            finally:
+                app.HERE = original
 
 
 class TestBeforeTheSpotlight(unittest.TestCase):
