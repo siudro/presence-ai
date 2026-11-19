@@ -700,12 +700,44 @@ async function sendLiveChunk() {
   }
 }
 
+/**
+ * Can this browser type live in the chosen language?
+ *
+ * Chrome's built-in recogniser only carries certain locales. Asking up front
+ * means the student is told before she speaks, rather than discovering after
+ * thirty seconds that nothing was typed.
+ */
+function recognitionSupportsLanguage(code) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return false;
+  if (typeof SR.available !== "function") {
+    // Not every build exposes `available`; assume yes and let onerror report.
+    return true;
+  }
+  // 'available' returns true/false, or 'downloadable' when it can fetch a pack.
+  try {
+    const result = SR.available(SPEECH_LOCALES[code] || code);
+    if (result === false) return false;
+    if (typeof result === "string" && result === "unavailable") return false;
+    return true;
+  } catch (err) {
+    return true;
+  }
+}
+
 function startRecognition() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) {
     setMicStatus("Live typing needs Chrome or Edge — measuring still works.");
     return;
   }
+  if (!recognitionSupportsLanguage(config.language)) {
+    setMicStatus(
+      "This browser cannot type live in this language — keep talking, Cohere will transcribe it."
+    );
+    return;
+  }
+
   mic.recognition = new SR();
   mic.recognition.continuous = true;
   mic.recognition.interimResults = true;
@@ -742,11 +774,33 @@ function startRecognition() {
     });
   };
 
+  /*
+   * Report EVERY recognition error, not just two of them.
+   *
+   * Chrome throws `language-not-supported` for locales its built-in speech
+   * service does not carry, and the previous handler covered only
+   * not-allowed and no-speech — so choosing Arabic produced no live text and
+   * no explanation. Silence looked like a broken microphone.
+   *
+   * The microphone itself is unaffected: measuring, the level meter and
+   * Cohere transcription all still run. Only the browser's live typing
+   * depends on this locale.
+   */
   mic.recognition.onerror = (event) => {
-    if (event.error === "not-allowed") {
+    const err = event && event.error;
+    if (err === "not-allowed" || err === "service-not-allowed") {
       setMicStatus("Microphone blocked — allow it in the address bar.");
-    } else if (event.error === "no-speech") {
+    } else if (err === "no-speech") {
       setMicStatus("Listening — no words yet.");
+    } else if (err === "language-not-supported") {
+      setMicStatus(
+        "This browser cannot type live in this language. Your microphone still measures, " +
+        "and Cohere will transcribe it — keep talking."
+      );
+    } else if (err === "network") {
+      setMicStatus("Live typing needs internet. Measuring still works.");
+    } else if (err) {
+      setMicStatus("Live typing stopped (" + err + ") — measuring still works.");
     }
   };
 

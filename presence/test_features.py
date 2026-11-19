@@ -1069,6 +1069,46 @@ class TestFeatureAudit(unittest.TestCase):
         with open(os.path.join(HERE, "app.py"), encoding="utf-8") as fh:
             cls.py = fh.read()
 
+    def test_recognition_errors_are_all_reported(self):
+        """
+        Only not-allowed and no-speech were handled. Chrome throws
+        language-not-supported for locales it lacks — choosing Arabic gave no
+        live text AND no message, which looks exactly like a dead microphone.
+        """
+        start = self.js.index("mic.recognition.onerror")
+        block = self.js[start:start + 1400]
+        self.assertIn("language-not-supported", block)
+        self.assertIn("network", block)
+        # And a catch-all, so a future error code is never silent again.
+        self.assertIn("Live typing stopped", block)
+
+    def test_arabic_still_measures_without_browser_typing(self):
+        """
+        The microphone is independent of the browser recogniser. Arabic must
+        measure and transcribe even when live typing is unavailable.
+        """
+        txt = "\u0627\u0646\u0627 \u0627\u0631\u064a\u062f \u0627\u0646 \u0627\u062a\u062d\u062f\u062b"
+        session = app.build_session({
+            "profile": "p", "language": "ar", "duration_seconds": 60,
+            "pauses": [], "avg_db": -30, "peak_db": -8,
+            "transcript": txt, "nudges": [],
+        })
+        self.assertEqual(session.language, "ar")
+        self.assertGreater(session.words, 0)
+        self.assertGreater(session.wpm, 0)
+
+    def test_arabic_routes_to_the_arabic_model(self):
+        import cohere_transcribe as ct
+        self.assertEqual(ct.pick_model("ar-SA"), ct.MODEL_ARABIC)
+        self.assertEqual(ct.pick_model("ar"), ct.MODEL_ARABIC)
+
+    def test_browser_language_support_is_checked_first(self):
+        """A student should learn before speaking, not after."""
+        self.assertIn("recognitionSupportsLanguage", self.js)
+        start = self.js.index("function startRecognition")
+        block = self.js[start:start + 900]
+        self.assertIn("recognitionSupportsLanguage", block)
+
     def test_every_offered_language_has_a_speech_locale(self):
         """
         Nine languages were offered in Settings but absent from
