@@ -2196,9 +2196,52 @@ async function sendChat() {
   const pending = addBubble("coach", "Thinking…", "pending");
 
   let answered = false;
+  let lastError = "";
 
-  // 1. The configured LLM endpoint, if the student set one.
-  const endpoint = (window.__llmEndpoint || "").trim();
+  /*
+   * 1. The SERVER's own LLM route first.
+   *
+   * This is the path that actually uses the configured provider with the key
+   * saved on the server. The browser previously never called it: it only knew
+   * about the optional "AI chat endpoint" URL, so a perfectly good OpenAI key
+   * sat unused while every message fell through to /api/chat (which queues for
+   * an agent that is usually not running) and then to the rule-based answers.
+   *
+   * That is why the chat stayed "rule based and dumb" no matter what key was
+   * pasted. The endpoint existed; nothing called it.
+   */
+  try {
+    const res = await Promise.race([
+      fetch("/api/llm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question,
+          report: lastReport(),
+          language: config.language,
+          attachment: attachedContext(),
+        }),
+      }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 45000)),
+    ]);
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.answer) {
+      if (pending) pending.remove();
+      addBubble("coach", data.answer);
+      if (note) {
+        note.textContent = "Answered by " + (data.model || data.provider || "your AI provider") + ".";
+      }
+      answered = true;
+    } else if (data.error) {
+      // Keep the reason; it is shown if every other path also fails.
+      lastError = data.message || data.error;
+    }
+  } catch (err) {
+    lastError = "The server did not answer in time.";
+  }
+
+  // 2. An external endpoint typed into Settings, if one was given.
+  const endpoint = answered ? "" : (window.__llmEndpoint || "").trim();
   if (endpoint) {
     try {
       const res = await Promise.race([
@@ -2226,7 +2269,7 @@ async function sendChat() {
     }
   }
 
-  // 2. The local server's agent bridge.
+  // 3. The local server's agent bridge.
   if (!answered) {
     try {
       const res = await Promise.race([
@@ -2264,9 +2307,15 @@ async function sendChat() {
         " — reading a file needs the AI endpoint, which is not configured yet."
       : localText);
     if (note) {
-      note.textContent = ATTACHED_FILES.length
-        ? "Answered without reading the file — configure an AI key in Settings."
-        : "Answered from your last measurements on this page (the AI endpoint was not reachable).";
+      if (lastError) {
+        // Name the actual failure. A generic message is what made this take
+        // several rounds to diagnose.
+        note.textContent = "The AI provider did not answer: " + lastError;
+      } else if (ATTACHED_FILES.length) {
+        note.textContent = "Answered without reading the file — configure an AI key in Settings.";
+      } else {
+        note.textContent = "Answered from your last measurements (no AI provider configured).";
+      }
     }
   }
 

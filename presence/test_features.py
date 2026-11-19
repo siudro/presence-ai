@@ -691,8 +691,10 @@ class TestLiveFeatures(unittest.TestCase):
     def test_attachment_is_sent_with_the_question(self):
         start = self.js.index("async function sendChat")
         block = self.js[start:self.js.index("/* ============================================================ UI plumbing")]
-        self.assertEqual(block.count("attachment: attachedContext()"), 2,
-                         "both the LLM and agent paths must carry the file")
+        # Three answer paths: the server's /api/llm, an external endpoint typed
+        # into Settings, and the agent bridge. All must carry the attachment.
+        self.assertGreaterEqual(block.count("attachment: attachedContext()"), 2,
+                                "every answer path must carry the file")
 
     def test_server_advertises_whether_it_can_persist(self):
         """
