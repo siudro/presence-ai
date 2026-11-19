@@ -94,13 +94,64 @@ class ServerFixture:
 # 1. Transcription: the key
 # ---------------------------------------------------------------------------
 
+def setUpModule():
+    """
+    Point the key file at a temp path for the entire suite.
+
+    Saving and forgetting a key now touch disk, so a single unisolated test
+    would delete the student's real api_key.txt. Guarding the whole module
+    means no test can harm a real key, even one written later by someone who
+    forgets to isolate.
+    """
+    global _SUITE_KEY_DIR, _SUITE_KEY_SAVED
+    import pathlib
+    import tempfile
+    _SUITE_KEY_DIR = tempfile.TemporaryDirectory()
+    _SUITE_KEY_SAVED = app.API_KEY_FILE
+    app.API_KEY_FILE = pathlib.Path(_SUITE_KEY_DIR.name) / "api_key.txt"
+
+
+def tearDownModule():
+    global _SUITE_KEY_DIR, _SUITE_KEY_SAVED
+    app.API_KEY_FILE = _SUITE_KEY_SAVED
+    try:
+        _SUITE_KEY_DIR.cleanup()
+    except Exception:
+        pass
+
+
+class IsolatedKeyFile:
+    """
+    Point app.API_KEY_FILE at a temp path while a test runs.
+
+    Saving a key now writes to disk, so without this a route test would leave
+    a key in the real api_key.txt and break every later "no key yet" test.
+    Tests must control their environment, not inherit it from each other.
+    """
+
+    def __enter__(self):
+        import tempfile
+        self._dir = tempfile.TemporaryDirectory()
+        self._saved = app.API_KEY_FILE
+        app.API_KEY_FILE = __import__("pathlib").Path(self._dir.name) / "api_key.txt"
+        app.clear_runtime_key()
+        return app.API_KEY_FILE
+
+    def __exit__(self, *exc):
+        app.API_KEY_FILE = self._saved
+        app.clear_runtime_key()
+        self._dir.cleanup()
+        return False
+
+
 class TestKeyHandling(unittest.TestCase):
     def setUp(self):
-        app.clear_runtime_key()
+        self._iso = IsolatedKeyFile()
+        self._iso.__enter__()
         self._saved_env = os.environ.pop("COHERE_API_KEY", None)
 
     def tearDown(self):
-        app.clear_runtime_key()
+        self._iso.__exit__(None, None, None)
         if self._saved_env is not None:
             os.environ["COHERE_API_KEY"] = self._saved_env
 
@@ -305,6 +356,8 @@ class TestRoutes(unittest.TestCase):
         # These tests assert "no key yet" behaviour, so the environment must
         # not supply one. Saved and restored so the suite does not leak state.
         cls._saved_env = os.environ.pop("COHERE_API_KEY", None)
+        cls._iso = IsolatedKeyFile()
+        cls._iso.__enter__()
         ServerFixture.start()
 
     @classmethod
@@ -312,9 +365,17 @@ class TestRoutes(unittest.TestCase):
         if cls._saved_env is not None:
             os.environ["COHERE_API_KEY"] = cls._saved_env
         ServerFixture.stop()
+        cls._iso.__exit__(None, None, None)
 
     def setUp(self):
+        # Clear both the in-memory key AND the isolated file: a test that saves
+        # a key would otherwise leave every later test in this class seeing a
+        # configured key.
         app.clear_runtime_key()
+        try:
+            app.API_KEY_FILE.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     def test_health(self):
         status, body = ServerFixture.get("/api/health")
@@ -632,6 +693,35 @@ class TestLiveFeatures(unittest.TestCase):
         block = self.js[start:self.js.index("/* ============================================================ UI plumbing")]
         self.assertEqual(block.count("attachment: attachedContext()"), 2,
                          "both the LLM and agent paths must carry the file")
+
+    def test_pasted_key_is_saved_to_disk(self):
+        """
+        The key lived only in a Python variable, so restarting the server lost
+        it and the student had to paste again every time.
+        """
+        import re
+        src = open(app.__file__, encoding="utf-8").read()
+        self.assertIn("def save_key_to_file", src)
+        self.assertIn("saved_to_disk", src)
+
+    def test_saved_key_file_is_owner_only(self):
+        """It is a credential: no group or world read."""
+        import re
+        src = open(app.__file__, encoding="utf-8").read()
+        start = src.index("def save_key_to_file")
+        block = src[start:src.index("def _file_key")]
+        self.assertIn("0o600", block)
+
+    def test_saving_failure_is_reported_not_raised(self):
+        """A read-only folder must not crash the app or claim success."""
+        src = open(app.__file__, encoding="utf-8").read()
+        start = src.index("def save_key_to_file")
+        block = src[start:src.index("def _file_key")]
+        self.assertIn("except OSError", block)
+        self.assertIn("return False", block)
+
+    def test_ui_tells_the_student_the_key_is_kept(self):
+        self.assertIn("you will not need to paste it again", self.js)
 
     def test_key_status_refreshes_when_settings_opens(self):
         """

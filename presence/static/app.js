@@ -2391,8 +2391,13 @@ function initSettings() {
           const data = await res.json();
           if (res.ok && data.configured) {
             if (keyField) keyField.value = "";
-            if (statusEl) statusEl.textContent = "Saved — held in memory for this session (" + (data.hint || "") + ").";
-            toast("Cohere key saved");
+            if (statusEl) {
+              statusEl.textContent = data.saved_to_disk
+                // Saved to the file the app reads on start, so a restart keeps it.
+                ? "Saved and kept on this computer " + (data.hint || "") + " — you will not need to paste it again."
+                : (data.message || "Saved for this session only.");
+            }
+            toast(data.saved_to_disk ? "Key saved" : "Key set for this session");
           } else {
             if (statusEl) statusEl.textContent = data.message || "That key was not accepted.";
             toast("Key not accepted");

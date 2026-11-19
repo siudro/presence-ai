@@ -1097,7 +1097,19 @@ def set_runtime_key(value: str) -> str:
 
 
 def clear_runtime_key() -> None:
+    """
+    Forget the key everywhere.
+
+    Clearing only the in-memory copy was not enough once keys persist: the
+    saved file would reload it on the next read, so "Forget" appeared to do
+    nothing. Deleting the file is what makes the button mean what it says.
+    """
     _RUNTIME_KEY["value"] = ""
+    try:
+        API_KEY_FILE.unlink(missing_ok=True)
+    except OSError:
+        # A read-only folder: the key is at least out of memory.
+        pass
 
 
 def key_status() -> dict:
@@ -1170,6 +1182,35 @@ def strip_quotes(value: str) -> str:
                 changed = True
     return value
 
+
+
+def save_key_to_file(value: str) -> bool:
+    """
+    Persist a key to api_key.txt so it survives a server restart.
+
+    The page used to hold a pasted key only in memory, so every restart of
+    `python3 app.py` lost it and the student had to paste again. Writing it to
+    the file the app already reads fixes that.
+
+    The file is created with owner-only permissions (0600) because it is a
+    credential. Failures are reported rather than raised: a read-only folder
+    should not crash the app, it should say the key could not be saved.
+    """
+    try:
+        API_KEY_FILE.write_text(
+            "# Cohere API key. Written by the app when you paste a key in Settings.\n"
+            "# Keep this file private. It is gitignored.\n"
+            + value.strip() + "\n",
+            encoding="utf-8",
+        )
+        try:
+            os.chmod(API_KEY_FILE, 0o600)
+        except OSError:
+            # Some filesystems have no POSIX permissions; the key is still saved.
+            pass
+        return True
+    except OSError:
+        return False
 
 
 def _file_key() -> str:
@@ -1636,7 +1677,19 @@ class Handler(BaseHTTPRequestHandler):
                 "error": "bad_key",
                 "message": "That does not look like a key. Paste the whole key.",
             })
-        return self._json(200, key_status())
+
+        # Persist so a restart does not lose it. The in-memory copy is still
+        # set, so the key works for this session even if the file cannot be
+        # written (a read-only folder, for example).
+        saved = save_key_to_file(cleaned)
+        status = key_status()
+        status["saved_to_disk"] = saved
+        if not saved:
+            status["message"] = (
+                "Key works for now, but it could not be written to api_key.txt, "
+                "so it will be lost when you restart the server."
+            )
+        return self._json(200, status)
 
     def _handle_transcribe(self) -> None:
         """
