@@ -136,7 +136,16 @@ Two commands, both print what they did:
 
 Expected ending:
 
-  All 221 tests passed (0.99s)
+  All 224 tests passed (0.91s)
+
+If Node.js is not installed on your Mac you will instead see:
+
+  All 220 tests passed, 4 skipped (0.77s)
+  Skipped tests need an optional tool that is not installed.
+  Nothing is broken -- the app does not require it.
+
+Four tests check the JavaScript detector by running it through Node. They
+SKIP when Node is absent. You do NOT need Node to run or submit the app.
 
 CHECK YOUR CONNECTIONS  (are the services reachable?)
 -----------------------------------------------------

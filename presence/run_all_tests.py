@@ -23,6 +23,7 @@ sys.path.insert(0, str(HERE))
 
 GREEN = "\033[92m"
 RED = "\033[91m"
+YELLOW = "\033[93m"
 DIM = "\033[2m"
 BOLD = "\033[1m"
 RESET = "\033[0m"
@@ -38,7 +39,7 @@ class GroupReporter(unittest.TextTestResult):
 
     def _group(self, test) -> dict[str, int]:
         name = test.__class__.__name__
-        return self.groups.setdefault(name, {"ok": 0, "bad": 0})
+        return self.groups.setdefault(name, {"ok": 0, "bad": 0, "skip": 0})
 
     def addSuccess(self, test):
         super().addSuccess(test)
@@ -56,7 +57,9 @@ class GroupReporter(unittest.TextTestResult):
 
     def addSkip(self, test, reason):
         super().addSkip(test, reason)
-        self._group(test)  # count the group even if skipped
+        # A skip is a real outcome, not a pass: it means an optional tool is
+        # absent. Counting it as "ok" would overstate what was verified.
+        self._group(test)["skip"] = self._group(test).get("skip", 0) + 1
 
 
 def run_module(module_name: str, verbose: bool) -> tuple[GroupReporter, float]:
@@ -95,18 +98,20 @@ def main() -> int:
 
     all_groups: dict[str, dict[str, int]] = {}
     failures: list[str] = []
-    total_ok = total_bad = 0
+    total_ok = total_bad = total_skip = 0
     started = time.time()
 
     for module in ("test_app", "test_features"):
         print(f"{BOLD}── {module}.py ──{RESET}")
         result, _ = run_module(module, verbose)
         for group, counts in result.groups.items():
-            agg = all_groups.setdefault(group, {"ok": 0, "bad": 0})
+            agg = all_groups.setdefault(group, {"ok": 0, "bad": 0, "skip": 0})
             agg["ok"] += counts["ok"]
             agg["bad"] += counts["bad"]
+            agg["skip"] += counts.get("skip", 0)
             total_ok += counts["ok"]
             total_bad += counts["bad"]
+            total_skip += counts.get("skip", 0)
         failures.extend(result.failures_named)
         print()
 
@@ -116,9 +121,12 @@ def main() -> int:
         counts = all_groups[group]
         if counts["bad"]:
             mark = f"{RED}FAIL{RESET}"
+        elif counts["skip"] and not counts["ok"]:
+            mark = f"{YELLOW}skip{RESET}"
         else:
             mark = f"{GREEN}pass{RESET}"
-        print(f"  {mark}  {group:<38} {counts['ok']:>3} tests")
+        suffix = f"  {YELLOW}({counts['skip']} skipped){RESET}" if counts["skip"] else ""
+        print(f"  {mark}  {group:<38} {counts['ok']:>3} tests{suffix}")
 
     print("-" * 62)
     duration = round(time.time() - started, 2)
@@ -131,7 +139,13 @@ def main() -> int:
             print(f"  - {name}")
         return 1
 
-    print(f"{GREEN}{BOLD}All {total_ok} tests passed{RESET} {DIM}({duration}s){RESET}")
+    skip_note = f", {total_skip} skipped" if total_skip else ""
+    print(f"{GREEN}{BOLD}All {total_ok} tests passed{RESET}{YELLOW}{skip_note}{RESET} "
+          f"{DIM}({duration}s){RESET}")
+    if total_skip:
+        print()
+        print(f"{DIM}Skipped tests need an optional tool that is not installed.")
+        print(f"Nothing is broken — the app does not require it.{RESET}")
     print()
     print(f"{DIM}Next: python3 check_connections.py  — are the services reachable?{RESET}")
     print()

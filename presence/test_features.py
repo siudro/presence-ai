@@ -1145,11 +1145,27 @@ class TestFeatureAudit(unittest.TestCase):
         self.assertEqual(missing, [], f"JS targets missing from the page: {missing}")
 
 
+def node_available() -> bool:
+    """
+    Node is only needed by the four tests that execute app.js directly.
+
+    A student running this project needs Python and nothing else, so those
+    tests SKIP when Node is absent instead of erroring. An error looks like a
+    broken project; a skip correctly says "this check needs an optional tool".
+    """
+    import shutil
+    return shutil.which("node") is not None
+
+
 class TestVoiceSteadiness(unittest.TestCase):
     """
     "Shaky voice" is measured as pitch variation. These tests use real
     synthetic audio, so they prove the detector works rather than that the
     function exists.
+
+    Four of them run the actual JavaScript through Node. If Node is not
+    installed they are SKIPPED, not failed: Node is not required to run or
+    submit this project.
     """
 
     @staticmethod
@@ -1163,6 +1179,7 @@ class TestVoiceSteadiness(unittest.TestCase):
             out.append(0.5 * math.sin(phase))
         return out
 
+    @unittest.skipUnless(node_available(), "node not installed")
     def test_js_pitch_estimator_finds_a_known_pitch(self):
         """Run the real JS estimator over a 150 Hz tone."""
         import json
@@ -1185,6 +1202,7 @@ class TestVoiceSteadiness(unittest.TestCase):
         # Autocorrelation lands within a couple of percent on a clean tone.
         self.assertAlmostEqual(f0, 150.0, delta=8.0, msg=f"got {f0}")
 
+    @unittest.skipUnless(node_available(), "node not installed")
     def test_js_estimator_rejects_silence(self):
         import json
         import subprocess
@@ -1195,6 +1213,7 @@ class TestVoiceSteadiness(unittest.TestCase):
         out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
         self.assertEqual(json.loads(out.stdout)["f0"], 0)
 
+    @unittest.skipUnless(node_available(), "node not installed")
     def test_pitch_variability_needs_enough_frames(self):
         import json
         import subprocess
@@ -1205,6 +1224,7 @@ class TestVoiceSteadiness(unittest.TestCase):
         out = subprocess.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
         self.assertIsNone(json.loads(out.stdout)["cv"])
 
+    @unittest.skipUnless(node_available(), "node not installed")
     def test_steady_tone_reads_low_variation(self):
         import json
         import subprocess
@@ -1462,6 +1482,40 @@ class TestTerminalTooling(unittest.TestCase):
         src = open(os.path.join(HERE, "check_connections.py"), encoding="utf-8").read()
         self.assertIn("FAIL", src)
         self.assertIn("return 1", src)
+
+
+class TestNoHiddenDependencies(unittest.TestCase):
+    """
+    The suite must not ERROR on a machine without optional tools. Four tests
+    once shelled out to `node`, which is not installed on a student's Mac by
+    default — so the suite reported four errors on a project that was fine.
+    """
+
+    def test_node_tests_skip_when_node_is_absent(self):
+        import re
+        src = open(os.path.join(HERE, "test_features.py"), encoding="utf-8").read()
+        self.assertIn("def node_available", src)
+        guards = re.findall(r'@unittest\.skipUnless\(node_available\(\)', src)
+        self.assertEqual(len(guards), 4, "all four node tests need the guard")
+
+    def test_no_test_spawns_an_unguarded_binary(self):
+        """
+        Any subprocess call must sit behind a skip guard, or the suite breaks
+        on a machine without that tool.
+        """
+        import re
+        src = open(os.path.join(HERE, "test_features.py"), encoding="utf-8").read()
+        calls = re.findall(r'subprocess\.run\(\["([\w-]+)"', src)
+        self.assertTrue(all(c == "node" for c in calls),
+                        f"unexpected external binary: {set(calls)}")
+        # Every node call must be in a guarded test.
+        self.assertEqual(len(calls), 4)
+
+    def test_runner_counts_skips_separately_from_passes(self):
+        """A skip is not a pass; the summary must say so."""
+        src = open(os.path.join(HERE, "run_all_tests.py"), encoding="utf-8").read()
+        self.assertIn('"skip"', src)
+        self.assertIn("skipped", src)
 
 
 class TestFreeLlmProvider(unittest.TestCase):
