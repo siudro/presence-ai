@@ -408,8 +408,18 @@
 
     <div class="chatlog" id="chatLog" aria-live="polite"></div>
 
+    <!-- Attached files appear here, above the input, so it is obvious what
+         the next answer will be reading. -->
+    <div class="chat-files" id="chatFiles"></div>
+
     <div class="chatrow">
-      <input id="chatInput" type="text" placeholder="What should I work on first?"
+      <label class="chat-attach" for="chatFile" aria-label="Attach a text file">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7.5-7.5"/>
+        </svg>
+      </label>
+      <input id="chatFile" type="file" accept=".txt,.md,.csv,.json,.srt,.vtt,text/*" hidden>
+      <input id="chatInput" type="text" placeholder="Ask the coach…"
              autocomplete="off" enterkeyhint="send">
       <button id="chatSendBtn">Send</button>
     </div>

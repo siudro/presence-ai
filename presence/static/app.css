@@ -664,7 +664,7 @@ body {
 .chatmsg.coach { justify-self: start; background: var(--paper-2); color: var(--ink); border-bottom-left-radius: 5px; }
 .chatmsg.pending { opacity: .6; font-style: italic; }
 
-.chatrow { display: flex; gap: 8px; }
+.chatrow { display: flex; gap: 6px; align-items: stretch; }
 
 .chatrow input {
   flex: 1;
@@ -1582,3 +1582,65 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .chat-fab:hover { transform: none; }
 }
+
+/* ==========================================================================
+   CHAT FILE ATTACHMENT
+   Text files are read in the browser and sent as context. Binary files are
+   refused with a clear reason rather than silently producing nonsense.
+   ========================================================================== */
+
+.chat-files { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.chat-files:empty { display: none; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel-3, #f2ece3);
+  border: 1px solid var(--rule);
+  border-radius: 99px;
+  padding: 5px 8px 5px 11px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  max-width: 100%;
+}
+
+.chip .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.chip .meta { color: var(--muted); font-size: 10px; }
+
+.chip button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.chip button:hover { color: var(--accent); }
+
+.chat-attach {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: auto;
+  align-self: stretch;
+  border-radius: 12px;
+  border: 1.5px solid var(--rule);
+  background: var(--paper-2);
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+  transition: border-color .16s ease, color .16s ease;
+}
+
+.chat-attach:hover { border-color: var(--accent); color: var(--accent); }
+.chat-attach svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }

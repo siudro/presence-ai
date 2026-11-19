@@ -1695,6 +1695,112 @@ function localAnswer(question) {
   return "I can answer about pace, fillers, freezes and nerves — from your actual measurements. For anything else, ask your teacher. I will not invent advice about things this tool does not measure.";
 }
 
+/* ==================================================== chat file attachment */
+
+/*
+ * Files are read in the browser and sent as TEXT context with the question.
+ *
+ * Why text only: the chat has no way to reason about an image or a PDF's
+ * layout, and pretending otherwise would produce confident nonsense. A file
+ * that cannot be read as text is refused with the reason, not silently
+ * ignored — the same principle as every other honesty guard here.
+ *
+ * Limits exist so one large upload cannot freeze the page or blow the
+ * request size: 200 KB of text is roughly 40 pages.
+ */
+const MAX_FILE_BYTES = 200 * 1024;
+const MAX_CONTEXT_CHARS = 12000;
+const ATTACHED_FILES = [];
+
+const TEXT_EXTENSIONS = [".txt", ".md", ".csv", ".json", ".srt", ".vtt", ".log", ".tsv"];
+
+function fileExtension(name) {
+  const i = (name || "").lastIndexOf(".");
+  return i < 0 ? "" : name.slice(i).toLowerCase();
+}
+
+function renderChatFiles() {
+  const box = $("chatFiles");
+  if (!box) return;
+  box.innerHTML = ATTACHED_FILES.map((f, i) =>
+    '<span class="chip"><span class="name">' + escapeHtml(f.name) + "</span>" +
+    '<span class="meta">' + Math.max(1, Math.round(f.text.length / 1024)) + " KB</span>" +
+    '<button data-i="' + i + '" aria-label="Remove ' + escapeHtml(f.name) + '">×</button></span>'
+  ).join("");
+}
+
+function removeChatFile(index) {
+  ATTACHED_FILES.splice(index, 1);
+  renderChatFiles();
+  if (!ATTACHED_FILES.length) {
+    const note = $("chatNote");
+    if (note) note.textContent = "Answers come from your own measurements.";
+  }
+}
+
+async function handleChatFile(file) {
+  const note = $("chatNote");
+  if (!file) return;
+
+  const ext = fileExtension(file.name);
+  const looksText = file.type.startsWith("text/") || TEXT_EXTENSIONS.indexOf(ext) >= 0;
+
+  if (!looksText) {
+    // Say what is wrong and what IS accepted. Do not add it.
+    if (note) {
+      note.textContent = "“" + file.name + "” is not a text file. Attach .txt, .md, .csv, .json, .srt or .vtt.";
+    }
+    toast("Text files only");
+    return;
+  }
+
+  if (file.size > MAX_FILE_BYTES) {
+    if (note) {
+      note.textContent = "That file is " + Math.round(file.size / 1024) +
+        " KB. The limit is 200 KB — paste the important part instead.";
+    }
+    toast("File too large");
+    return;
+  }
+
+  let text = "";
+  try {
+    text = await file.text();
+  } catch (err) {
+    if (note) note.textContent = "That file could not be read.";
+    return;
+  }
+
+  if (!text.trim()) {
+    if (note) note.textContent = "That file is empty.";
+    return;
+  }
+
+  // Cap what is sent, and say when it was trimmed rather than quietly cutting.
+  let truncated = false;
+  if (text.length > MAX_CONTEXT_CHARS) {
+    text = text.slice(0, MAX_CONTEXT_CHARS);
+    truncated = true;
+  }
+
+  ATTACHED_FILES.push({ name: file.name, text, truncated });
+  renderChatFiles();
+
+  if (note) {
+    note.textContent = truncated
+      ? "Attached, but only the first " + Math.round(MAX_CONTEXT_CHARS / 1000) +
+        "000 characters are sent — the rest is dropped."
+      : "Attached. Ask a question and the coach will read it.";
+  }
+}
+
+function attachedContext() {
+  if (!ATTACHED_FILES.length) return "";
+  return ATTACHED_FILES.map(
+    (f) => "ATTACHED FILE: " + f.name + "\n" + f.text
+  ).join("\n\n---\n\n");
+}
+
 async function sendChat() {
   const input = $("chatInput");
   const btn = $("chatSendBtn");
@@ -1703,7 +1809,10 @@ async function sendChat() {
   const question = (input.value || "").trim();
   if (!question) return;
 
-  addBubble("user", question);
+  const attachedNames = ATTACHED_FILES.map((f) => f.name);
+  addBubble("user", question + (attachedNames.length
+    ? "\n\n📎 " + attachedNames.join(", ")
+    : ""));
   input.value = "";
   if (btn) btn.disabled = true;
   const pending = addBubble("coach", "Thinking…", "pending");
@@ -1718,7 +1827,12 @@ async function sendChat() {
         fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, report: lastReport(), language: config.language }),
+          body: JSON.stringify({
+            question,
+            report: lastReport(),
+            language: config.language,
+            attachment: attachedContext(),
+          }),
         }),
         new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000)),
       ]);
@@ -1741,7 +1855,11 @@ async function sendChat() {
         fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ question, token: window.__chatToken || "" }),
+          body: JSON.stringify({
+            question,
+            token: window.__chatToken || "",
+            attachment: attachedContext(),
+          }),
         }),
         new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 3000)),
       ]);
@@ -1761,8 +1879,17 @@ async function sendChat() {
   // 3. Always answer: the student must never be left with "Thinking…".
   if (!answered) {
     if (pending) pending.remove();
-    addBubble("coach", localAnswer(question));
-    if (note) note.textContent = "Answered from your last measurements on this page (the AI endpoint was not reachable).";
+    const localText = localAnswer(question);
+    addBubble("coach", ATTACHED_FILES.length
+      ? localText + "\n\nI can see you attached " +
+        ATTACHED_FILES.map((f) => f.name).join(", ") +
+        " — reading a file needs the AI endpoint, which is not configured yet."
+      : localText);
+    if (note) {
+      note.textContent = ATTACHED_FILES.length
+        ? "Answered without reading the file — configure an AI key in Settings."
+        : "Answered from your last measurements on this page (the AI endpoint was not reachable).";
+    }
   }
 
   if (btn) btn.disabled = false;
@@ -2329,6 +2456,25 @@ function toggleChat() {
 
 const chatFab = $("chatFab");
 if (chatFab) chatFab.addEventListener("click", toggleChat);
+
+const chatFileInput = $("chatFile");
+if (chatFileInput) {
+  chatFileInput.addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    handleChatFile(file);
+    // Reset so choosing the same file twice still fires a change.
+    event.target.value = "";
+  });
+}
+
+const chatFiles = $("chatFiles");
+if (chatFiles) {
+  chatFiles.addEventListener("click", (event) => {
+    const btn = event.target.closest("button[data-i]");
+    if (!btn) return;
+    removeChatFile(Number(btn.dataset.i));
+  });
+}
 
 const chatClose = $("chatClose");
 if (chatClose) chatClose.addEventListener("click", closeChat);

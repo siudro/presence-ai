@@ -605,6 +605,49 @@ class TestLiveFeatures(unittest.TestCase):
             self.assertIsNotNone(m, f"{sel} missing")
             self.assertIn("padding-bottom", m.group(1), f"{sel} needs clearance")
 
+    def test_chatbot_accepts_text_files(self):
+        self.assertIn('id="chatFile"', self.html)
+        self.assertIn("handleChatFile", self.js)
+        # A text-only accept list, so the picker itself filters.
+        self.assertIn('accept=".txt,.md,.csv,.json,.srt,.vtt,text/*"', self.html)
+
+    def test_chatbot_refuses_binary_files_with_a_reason(self):
+        """
+        The chat cannot read an image or a PDF's layout. Refusing with an
+        explanation beats attaching it and letting the model invent something.
+        """
+        start = self.js.index("async function handleChatFile")
+        block = self.js[start:self.js.index("function attachedContext")]
+        self.assertIn("looksText", block)
+        self.assertIn("is not a text file", block)
+
+    def test_chatbot_bounds_file_size_and_length(self):
+        start = self.js.index("const MAX_FILE_BYTES")
+        block = self.js[start:self.js.index("function renderChatFiles")]
+        self.assertIn("MAX_FILE_BYTES", block)
+        self.assertIn("MAX_CONTEXT_CHARS", block)
+
+    def test_attachment_is_sent_with_the_question(self):
+        start = self.js.index("async function sendChat")
+        block = self.js[start:self.js.index("/* ============================================================ UI plumbing")]
+        self.assertEqual(block.count("attachment: attachedContext()"), 2,
+                         "both the LLM and agent paths must carry the file")
+
+    def test_local_answer_admits_it_did_not_read_the_file(self):
+        """
+        Without an AI endpoint the file is not read. Saying so is the honest
+        behaviour; pretending to have analysed it would not be.
+        """
+        start = self.js.index("async function sendChat")
+        block = self.js[start:self.js.index("/* ============================================================ UI plumbing")]
+        self.assertIn("Answered without reading the file", block)
+
+    def test_server_accepts_attachment_text(self):
+        start = app.__file__
+        src = open(start, encoding="utf-8").read()
+        self.assertIn('payload.get("attachment")', src)
+        self.assertIn("never claim to have measured it", src)
+
     def test_chat_panel_closes_on_escape(self):
         self.assertIn('event.key === "Escape"', self.js)
 

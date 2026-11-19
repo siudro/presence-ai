@@ -1505,12 +1505,21 @@ class Handler(BaseHTTPRequestHandler):
             "You are PRESENCE AI, a pacing coach for Arab school students "
             "presenting in English. Answer in 2-4 short sentences. Only use "
             "the numbers given to you. Never invent a measurement: if a number "
-            "is missing, say it was not measured."
+            "is missing, say it was not measured. "
+            "If the student attaches a file, you may quote or summarise it, but "
+            "never claim to have measured it — a file is text, not a recording."
         )
         report = payload.get("report")
         context = ""
         if isinstance(report, dict) and isinstance(report.get("tools"), dict):
             context = "Measured session data: " + json.dumps(report["tools"])[:2000]
+
+        # Attached file text, bounded so one upload cannot crowd out the
+        # question or exceed the provider's context window.
+        attachment = str(payload.get("attachment") or "").strip()
+        if attachment:
+            attachment = attachment[:12000]
+            context = (context + "\n\n" + attachment).strip()
 
         body = {
             "model": cfg["model"],
@@ -1590,8 +1599,12 @@ class Handler(BaseHTTPRequestHandler):
 
         # No token yet: queue the question and hand back the token to poll.
         try:
-            measurement = str(payload.get("measurement") or question)
-            new_token = coach_bridge.enqueue(measurement, question)
+            # The bridge's context field carries any attached file text, so
+            # the agent sees the same material the student sent.
+            base = str(payload.get("measurement") or question)
+            attachment = str(payload.get("attachment") or "").strip()[:12000]
+            context = (question + "\n\n" + attachment).strip() if attachment else question
+            new_token = coach_bridge.enqueue(base, context)
         except Exception:
             return self._json(503, {"error": "queue_failed"})
         return self._json(202, {"token": new_token, "status": "pending"})
