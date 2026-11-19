@@ -2,11 +2,11 @@
   "_comment": "OpenAI — paid key. Copy to llm_config.json.",
   "_security": "NEVER put a real key in this file. Paste it in the app's Settings, or export OPENAI_API_KEY.",
   "_setup": "1) Paste your key in Settings (AI provider key) and Save. 2) cp llm_config.openai.json llm_config.json 3) python3 app.py",
-  "_model_note": "Pick the exact model id from https://platform.openai.com/docs/models — the app sends whatever is written here.",
-
+  "_model_note": "model = the exact id from https://platform.openai.com/docs/models. Put your KEY in the app's Settings, NOT in this file and NOT in api_key_env.",
   "provider": "openai",
   "base_url": "https://api.openai.com/v1",
   "model": "gpt-4o-mini",
   "api_key_env": "OPENAI_API_KEY",
-  "timeout": 40
+  "timeout": 40,
+  "_key_note_": "api_key_env is the NAME of an environment variable (e.g. OPENAI_API_KEY). Do not paste the key here — paste it in Settings, or in llm_api_key.txt."
 }

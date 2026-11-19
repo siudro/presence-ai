@@ -1205,6 +1205,12 @@ def strip_quotes(value: str) -> str:
 
 def read_llm_key(cfg: Optional[dict] = None) -> str:
     """
+    The AI-chat key, from every place a student might reasonably have put it.
+
+    Order: llm_api_key.txt (what the page writes), then a literal "api_key"
+    field, then the env var named in api_key_env, then LLM_API_KEY.
+    """
+    """
     The AI-chat key, from the same places the Cohere key uses.
 
     It was read ONLY from an environment variable, so a key pasted into the
@@ -1220,7 +1226,27 @@ def read_llm_key(cfg: Optional[dict] = None) -> str:
     except OSError:
         pass
 
+    # A literal "api_key" field in llm_config.json. Discouraged by the
+    # template, but it is an obvious thing to do, so it must not silently fail.
+    literal = str((cfg or {}).get("api_key") or "").strip()
+    if literal and not literal.startswith("*"):
+        return normalise_key(literal)
+
     env_name = (cfg or {}).get("api_key_env") or "LLM_API_KEY"
+
+    # `api_key_env` is meant to hold the NAME of an environment variable. But
+    # it is extremely easy to read it as "put the key here" and paste the key
+    # itself — which produced a silent fallback to the rule-based chat, with
+    # no error anywhere. Detect that shape and use it as the key, so the
+    # obvious mistake works instead of failing mysteriously.
+    looks_like_a_key = (
+        env_name.startswith("sk-")
+        or env_name.startswith("AIza")
+        or (len(env_name) > 40 and " " not in env_name)
+    )
+    if looks_like_a_key:
+        return env_name.strip()
+
     return (os.environ.get(env_name) or "").strip() or (os.environ.get("LLM_API_KEY") or "").strip()
 
 
@@ -1600,6 +1626,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(400, {"error": "empty question"})
 
         cfg = load_llm_config()
+        if cfg and not read_llm_key(cfg):
+            # A config exists but yields no key: the single most common setup
+            # mistake. Say so in the response AND the console, because a silent
+            # fallback to the rule-based answers looks like the AI is broken.
+            msg = (
+                "llm_config.json exists but no usable key was found. "
+                "Paste your key in Settings → AI provider key, or set "
+                f"'api_key_env' to the NAME of an environment variable "
+                f"(currently: {cfg.get('api_key_env')!r})."
+            )
+            log_step(f"LLM  ← no key. api_key_env = {cfg.get('api_key_env')!r}", ok=False)
+            return self._json(503, {"error": "llm_no_key", "message": msg})
         if not cfg:
             # Not configured is a normal state, not an error: the page answers
             # locally instead. 503 lets it do that cleanly.
@@ -1921,9 +1959,22 @@ def print_configuration() -> None:
     key = read_llm_key(cfg)
     if key:
         log_step(f"AI chat: {cfg.get('model')}  key {_c('…' + key[-4:], '92')}", ok=True)
+        return
+
+    # No usable key. Name the exact field and its current value, because this
+    # is where nearly every setup goes wrong and the old message ("paste one in
+    # Settings") did not say WHAT was wrong.
+    env_value = cfg.get("api_key_env")
+    log_step(f"AI chat: no key found — falling back to built-in rules", ok=False)
+    log_step(f"      api_key_env is {env_value!r}")
+    if env_value and (str(env_value).startswith("sk-") or len(str(env_value)) > 40):
+        log_step("      ^ that looks like a KEY PASTED INTO THE WRONG FIELD — the engine")
+        log_step("        now accepts it, so if you still see this, restart the server.")
     else:
-        log_step(f"AI chat configured ({cfg.get('model')}) but no key — "
-                 "paste one in Settings", ok=False)
+        log_step("      api_key_env must be the NAME of an environment variable,")
+        log_step("      not the key itself. Easiest fix: paste the key in Settings.")
+    if not (HERE / "llm_api_key.txt").exists():
+        log_step("      llm_api_key.txt not found — Settings has not saved a key yet.")
 
 
 def main() -> None:
