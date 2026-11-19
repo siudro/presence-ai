@@ -2322,6 +2322,9 @@ function initSettings() {
     sidebar.classList.add("open"); scrim.classList.add("open");
     sidebar.setAttribute("aria-hidden", "false");
     openBtn.setAttribute("aria-expanded", "true");
+    // Re-read the key state on every open. It was only read once at startup,
+    // so a key pasted afterwards left the label at "Not set yet" forever.
+    refreshKeyStatus();
   };
   const closeSidebar = () => {
     sidebar.classList.remove("open"); scrim.classList.remove("open");
@@ -2554,11 +2557,27 @@ function checkOffline() {
   const banner = document.createElement("div");
   banner.className = "offline-banner";
   banner.innerHTML =
-    "<strong>Limited mode — opened from disk.</strong> " +
-    "Recording, live typing and the measurements work here. " +
-    "Server features (saving sessions, the AI advisor) need the local server: " +
-    "run <code>python3 app.py</code> and open <code>http://localhost:8080</code>.";
+    "<strong>This is the file, not the app.</strong> " +
+    "You opened index.html from Finder, so keys, saving and the AI coach cannot work. " +
+    "In Terminal run <code>cd presence</code> then <code>python3 app.py</code>, " +
+    "and open <code>http://localhost:8080</code> — not this file.";
   document.body.prepend(banner);
+
+  // A key pasted on this page can never be saved, so say that where the key
+  // is, instead of letting someone type it and wonder why nothing changes.
+  const status = $("cohereKeyStatus");
+  if (status) {
+    status.textContent =
+      "Cannot save a key here — this page is a file, not the running app. " +
+      "Start the server and open http://localhost:8080 instead.";
+  }
+  ["apiKey", "llmKey", "apiEndpoint", "saveSettings"].forEach((id) => {
+    const el = $(id);
+    if (el) {
+      el.disabled = true;
+      el.title = "Start the local server first (python3 app.py)";
+    }
+  });
 }
 
 // Allow #live / #report / #progress to open a screen directly.

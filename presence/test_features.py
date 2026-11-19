@@ -633,6 +633,29 @@ class TestLiveFeatures(unittest.TestCase):
         self.assertEqual(block.count("attachment: attachedContext()"), 2,
                          "both the LLM and agent paths must carry the file")
 
+    def test_key_status_refreshes_when_settings_opens(self):
+        """
+        The status was read once at startup, so a key pasted afterwards left
+        the panel saying "Not set yet" forever.
+        """
+        start = self.js.index("const openSidebar = () =>")
+        block = self.js[start:start + 500]
+        self.assertIn("refreshKeyStatus", block)
+
+    def test_file_scheme_refuses_a_key_paste(self):
+        """
+        On file:// there is no server to store a key in, so the field must say
+        that rather than accepting a paste that can never work.
+        """
+        start = self.js.index("function checkOffline")
+        block = self.js[start:self.js.index("// Allow #live", start)]
+        self.assertIn("Cannot save a key here", block)
+        self.assertIn("disabled = true", block)
+
+    def test_endpoint_field_is_explained(self):
+        """She asked what it was; the label must answer that in place."""
+        self.assertIn("usually leave this as-is", self.html)
+
     def test_rule_based_coach_exists(self):
         self.assertIn("const COACH_RULES", self.js)
         self.assertIn("function matchCoachRule", self.js)
