@@ -197,14 +197,14 @@
       <p class="cardnote" id="audienceNote"></p>
     </div>
 
+    <!-- The chat itself lives in the floating panel so it is reachable from
+         every screen. This card is the report-screen shortcut to it. -->
     <div class="card">
       <div class="cardhead">ASK THE COACH</div>
-      <div class="chatlog" id="chatLog" aria-live="polite"></div>
-      <div class="chatrow">
-        <input id="chatInput" type="text" placeholder="What should I work on first?" autocomplete="off" enterkeyhint="send">
-        <button id="chatSendBtn">Send</button>
+      <p class="cardnote">Questions about your numbers, your nerves, or what to fix first.</p>
+      <div class="calmbtns">
+        <button class="ghostbtn" id="openChatFromReport">Open the coach</button>
       </div>
-      <p class="cardnote" id="chatNote">Answers come from your own measurements.</p>
     </div>
 
     <div class="endbtns">
@@ -382,6 +382,39 @@
       <button class="ghostbtn" id="spotBackBtn">Back</button>
     </div>
   </section>
+
+  <!-- ============================================ CHATBOT (all screens)
+
+       A single floating assistant rather than a card buried in one report.
+       It holds the ONLY chatLog / chatInput / chatSendBtn elements, so the
+       existing send logic drives it without duplication. -->
+  <button class="chat-fab" id="chatFab" aria-label="Open the coach" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-5.5A8 8 0 0 1 11 4h2a8 8 0 0 1 8 8z"/>
+    </svg>
+    <span class="chat-fab-dot" id="chatFabDot" hidden></span>
+  </button>
+
+  <div class="chat-panel" id="chatPanel" aria-hidden="true" role="dialog" aria-label="Coach chat">
+    <div class="chat-panel-head">
+      <div>
+        <strong>Your coach</strong>
+        <span id="chatPanelSub">Answers from your measurements</span>
+      </div>
+      <button class="chat-close" id="chatClose" aria-label="Close chat">
+        <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="chatlog" id="chatLog" aria-live="polite"></div>
+
+    <div class="chatrow">
+      <input id="chatInput" type="text" placeholder="What should I work on first?"
+             autocomplete="off" enterkeyhint="send">
+      <button id="chatSendBtn">Send</button>
+    </div>
+    <p class="cardnote" id="chatNote">Answers come from your own measurements.</p>
+  </div>
 
   <div class="scrim" id="scrim"></div>
 

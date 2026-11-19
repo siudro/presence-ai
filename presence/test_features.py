@@ -574,6 +574,40 @@ class TestLiveFeatures(unittest.TestCase):
         self.assertIn("seconds: 2", block)
         self.assertIn("seconds: 6", block)
 
+    def test_chatbot_is_reachable_from_every_screen(self):
+        """
+        The chat used to be a card on the report screen only, so a student had
+        to record something and scroll to find it. It is now a floating panel.
+        """
+        self.assertIn('id="chatFab"', self.html)
+        self.assertIn('id="chatPanel"', self.html)
+        self.assertIn("function toggleChat", self.js)
+
+    def test_chat_elements_are_not_duplicated(self):
+        """
+        Moving the chat must not leave a second chatLog behind: two elements
+        with one id means the JavaScript drives whichever it finds first.
+        """
+        import collections, re
+        ids = re.findall(r'id="([^"]+)"', self.html)
+        dups = [k for k, v in collections.Counter(ids).items() if v > 1]
+        self.assertEqual(dups, [], f"duplicate ids: {dups}")
+        self.assertEqual(ids.count("chatLog"), 1)
+
+    def test_chatbot_clears_the_floating_button(self):
+        """
+        A fixed button always covers the bottom of whatever scrolls under it,
+        so each screen's last row must reserve room for it.
+        """
+        import re
+        for sel in (".homerow", ".endbtns", ".sessionlist"):
+            m = re.search(re.escape(sel) + r"\s*\{([^}]*)\}", self.css)
+            self.assertIsNotNone(m, f"{sel} missing")
+            self.assertIn("padding-bottom", m.group(1), f"{sel} needs clearance")
+
+    def test_chat_panel_closes_on_escape(self):
+        self.assertIn('event.key === "Escape"', self.js)
+
     def test_chat_panel_exists(self):
         self.assertIn('id="chatLog"', self.html)
         self.assertIn('id="chatInput"', self.html)

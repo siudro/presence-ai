@@ -280,7 +280,7 @@ body {
 .trow.asbtn { cursor: pointer; }
 .trow.asbtn:hover span:last-child { color: var(--accent); }
 
-.homerow { margin-top: auto; padding-top: 18px; flex: none; }
+.homerow { margin-top: auto; padding-top: 18px; padding-bottom: 68px; flex: none; }
 
 .ghostbtn {
   width: 100%;
@@ -694,7 +694,10 @@ body {
 
 .chatrow button:disabled { opacity: .5; }
 
-.endbtns { display: flex; gap: 10px; margin-top: 16px; padding-bottom: 4px; flex: none; }
+/* Clearance for the floating chat button: a fixed element always covers the
+   bottom of whatever scrolls under it, so every screen's last row reserves
+   room for it rather than hoping a particular button avoids the corner. */
+.endbtns { display: flex; gap: 10px; margin-top: 16px; padding-bottom: 72px; flex: none; }
 
 /* --------------------------------------------------------------- progress */
 
@@ -770,7 +773,7 @@ body {
   flex: none;
 }
 
-.sessionlist { margin-top: 18px; display: flex; flex-direction: column; flex: none; }
+.sessionlist { margin-top: 18px; display: flex; flex-direction: column; flex: none; padding-bottom: 68px; }
 
 .srow {
   display: flex;
@@ -1471,4 +1474,111 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .spot-orb { transition: none; }
   .tile:hover { transform: none; }
+}
+
+/* ==========================================================================
+   FLOATING CHATBOT
+   One assistant, reachable from every screen. Positioned above the safe area
+   and within thumb reach on a phone; it never covers the primary button on
+   the home screen because that button sits in normal flow, not under it.
+   ========================================================================== */
+
+.chat-fab {
+  position: fixed;
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 30;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 12px 28px -10px rgba(194, 65, 12, .75);
+  transition: transform .16s ease, box-shadow .18s ease;
+}
+
+.chat-fab:hover { transform: translateY(-2px); box-shadow: 0 16px 34px -10px rgba(194, 65, 12, .85); }
+.chat-fab:active { transform: none; }
+.chat-fab svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* A small mark that means "there is something here", not a count. */
+.chat-fab-dot {
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #fbbf24;
+  border: 2px solid var(--paper);
+}
+
+/* Panel: a bottom sheet on a phone, a floating card on a desktop. */
+.chat-panel {
+  position: fixed;
+  z-index: 31;
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 22px;
+  padding: 16px;
+  display: none;
+  flex-direction: column;
+  box-shadow: 0 26px 60px -20px rgba(37, 32, 27, .45);
+}
+
+.chat-panel.open { display: flex; }
+
+.chat-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.chat-panel-head strong { display: block; font-size: 14px; }
+.chat-panel-head span { display: block; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+
+.chat-close {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--rule);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--muted);
+  flex: none;
+}
+
+.chat-close svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; }
+
+/* The log scrolls inside the panel; the input stays put. */
+.chat-panel .chatlog {
+  flex: 1;
+  min-height: 90px;
+  max-height: none;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 460px) {
+  .chat-panel {
+    left: calc(8px + env(safe-area-inset-left));
+    right: calc(8px + env(safe-area-inset-right));
+    width: auto;
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    max-height: 72vh;
+  }
+  .chat-fab { width: 52px; height: 52px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-fab:hover { transform: none; }
 }

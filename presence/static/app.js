@@ -2284,6 +2284,63 @@ if (confStart) confStart.addEventListener("click", startConfidence);
 const confStop = $("confStop");
 if (confStop) confStop.addEventListener("click", () => stopConfidence(false));
 
+/* ------------------------------------------------------ floating chatbot */
+
+/*
+ * One assistant for the whole app.
+ *
+ * It was previously a card on the report screen only, which meant a student
+ * had to record something and scroll to find it. A chatbot you cannot reach
+ * until after the work is not a chatbot.
+ */
+function openChat() {
+  const panel = $("chatPanel");
+  const fab = $("chatFab");
+  if (!panel) return;
+  panel.classList.add("open");
+  panel.setAttribute("aria-hidden", "false");
+  if (fab) fab.setAttribute("aria-expanded", "true");
+  const dot = $("chatFabDot");
+  if (dot) dot.hidden = true;
+  const input = $("chatInput");
+  if (input) {
+    // Focus only where a keyboard will not jump the layout on a phone.
+    if (window.innerWidth > 460) input.focus();
+  }
+  const log = $("chatLog");
+  if (log) log.scrollTop = log.scrollHeight;
+}
+
+function closeChat() {
+  const panel = $("chatPanel");
+  const fab = $("chatFab");
+  if (!panel) return;
+  panel.classList.remove("open");
+  panel.setAttribute("aria-hidden", "true");
+  if (fab) fab.setAttribute("aria-expanded", "false");
+}
+
+function toggleChat() {
+  const panel = $("chatPanel");
+  if (!panel) return;
+  if (panel.classList.contains("open")) closeChat();
+  else openChat();
+}
+
+const chatFab = $("chatFab");
+if (chatFab) chatFab.addEventListener("click", toggleChat);
+
+const chatClose = $("chatClose");
+if (chatClose) chatClose.addEventListener("click", closeChat);
+
+const openChatFromReport = $("openChatFromReport");
+if (openChatFromReport) openChatFromReport.addEventListener("click", openChat);
+
+// Escape closes the panel, as with any dialog.
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeChat();
+});
+
 const heatmapBox = $("heatmap");
 if (heatmapBox) heatmapBox.addEventListener("click", onHeatmapClick);
 
