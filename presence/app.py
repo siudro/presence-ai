@@ -43,6 +43,11 @@ from pathlib import Path
 from typing import Deque, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
+# Bumped whenever a fix changes observable behaviour, so the page can show
+# which build is actually running. Answering "are you on the new version?"
+# by looking at the screen is faster than any amount of asking.
+BUILD = "2026-11-19-key-persist-r2"
+
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
 SESSIONS_FILE = HERE / "sessions.jsonl"
@@ -1127,6 +1132,9 @@ def key_status() -> dict:
     return {
         "configured": bool(key),
         "source": source,
+        "build": BUILD,
+        # The page uses this to prove the running server can save a key at all.
+        "can_persist": True,
         # Only ever the last 4 characters: enough to confirm the right key was
         # pasted, useless to anyone who reads the response.
         "hint": ("…" + key[-4:]) if len(key) >= 8 else "",
@@ -1415,7 +1423,13 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/style.css", "/app.js", "/app.css"):
             return self._serve_static(path.lstrip("/"))
         if path == "/api/health":
-            return self._json(200, {"ok": True, "service": "presence-ai", "version": "1.0"})
+            return self._json(200, {
+                "ok": True,
+                "service": "presence-ai",
+                "version": "1.0",
+                "build": BUILD,
+                "persists_key": True,
+            })
         if path == "/api/key":
             return self._json(200, key_status())
         if path == "/api/history":
@@ -1652,9 +1666,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_set_key(self) -> None:
         """
-        Accept a key typed into the page. Memory only, never written to disk.
+        Accept a key typed into the page and PERSIST it to api_key.txt.
 
-        A DELETE-style empty body clears it, so the page can offer "forget".
+        A body with no key clears it, so the page can offer "forget".
         """
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0 or length > 10_000:

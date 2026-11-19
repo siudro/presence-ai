@@ -2430,6 +2430,19 @@ async function refreshKeyStatus() {
     const res = await fetch("/api/key");
     const data = await res.json();
     const home = $("homeKeyState");
+
+    /*
+     * If the running server does not advertise persistence, the browser is
+     * talking to an OLD server process — which is exactly why a pasted key
+     * would vanish. Say that instead of showing a misleading "Not set yet".
+     */
+    if (data && data.can_persist === undefined) {
+      statusEl.textContent =
+        "This server is an older version and cannot save keys. Stop it (Ctrl+C) and start it again with python3 app.py.";
+      if (home) home.textContent = "old server";
+      return;
+    }
+
     if (data && data.configured) {
       const where = { page: "typed here", file: "from api_key.txt", environment: "from the environment" }[data.source] || data.source;
       statusEl.textContent = "Key loaded " + where + (data.hint ? " (" + data.hint + ")" : "") + ".";

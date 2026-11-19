@@ -694,6 +694,25 @@ class TestLiveFeatures(unittest.TestCase):
         self.assertEqual(block.count("attachment: attachedContext()"), 2,
                          "both the LLM and agent paths must carry the file")
 
+    def test_server_advertises_whether_it_can_persist(self):
+        """
+        The page uses this flag to tell "you have no key" apart from "you are
+        talking to an old server that cannot save one" — the exact ambiguity
+        that made the persistence fix look broken.
+        """
+        status = app.key_status()
+        self.assertIs(status.get("can_persist"), True)
+        self.assertTrue(status.get("build"))
+
+    def test_health_reports_the_build(self):
+        """The build string lets a student confirm which version is running."""
+        self.assertTrue(getattr(app, "BUILD", ""), "app.BUILD must be set")
+
+    def test_ui_detects_an_old_server(self):
+        """An old server must be named, not silently shown as 'no key'."""
+        self.assertIn("can_persist === undefined", self.js)
+        self.assertIn("older version and cannot save keys", self.js)
+
     def test_pasted_key_is_saved_to_disk(self):
         """
         The key lived only in a Python variable, so restarting the server lost
