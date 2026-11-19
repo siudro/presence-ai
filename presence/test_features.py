@@ -1558,6 +1558,66 @@ class TestServerConsole(unittest.TestCase):
         self.assertIn("tempfile.TemporaryDirectory", src)
 
 
+class TestJustPasteTheKey(unittest.TestCase):
+    """
+    The student pasted a key in Settings and the chat stayed rule-based.
+    Root cause: no llm_config.json, and /api/llm returned 503 without creating
+    one. Pasting a key must be enough.
+    """
+
+    def test_a_pasted_key_creates_the_config(self):
+        import pathlib
+        import tempfile
+        original_dir = app.HERE
+        original_key = app.LLM_KEY_FILE
+        with tempfile.TemporaryDirectory() as d:
+            app.HERE = pathlib.Path(d)
+            app.LLM_KEY_FILE = pathlib.Path(d) / "llm_api_key.txt"
+            try:
+                # No config at all, only a pasted OpenAI-looking key.
+                self.assertFalse((pathlib.Path(d) / "llm_config.json").exists())
+                self.assertTrue(app.save_llm_key("sk-test-pasted-key-abcdefgh"))
+                self.assertTrue(app.ensure_llm_config())
+                cfg = app.load_llm_config()
+                self.assertIsNotNone(cfg)
+                self.assertEqual(cfg["provider"], "openai")
+            finally:
+                app.HERE = original_dir
+                app.LLM_KEY_FILE = original_key
+
+    def test_no_key_no_config_stays_rule_based(self):
+        """Without a key, nothing is invented and nothing is written."""
+        import pathlib
+        import tempfile
+        original_dir = app.HERE
+        original_key = app.LLM_KEY_FILE
+        with tempfile.TemporaryDirectory() as d:
+            app.HERE = pathlib.Path(d)
+            app.LLM_KEY_FILE = pathlib.Path(d) / "llm_api_key.txt"
+            try:
+                self.assertFalse(app.ensure_llm_config())
+                self.assertFalse((pathlib.Path(d) / "llm_config.json").exists())
+            finally:
+                app.HERE = original_dir
+                app.LLM_KEY_FILE = original_key
+
+    def test_gemini_key_creates_a_gemini_config(self):
+        import pathlib
+        import tempfile
+        original_dir = app.HERE
+        original_key = app.LLM_KEY_FILE
+        with tempfile.TemporaryDirectory() as d:
+            app.HERE = pathlib.Path(d)
+            app.LLM_KEY_FILE = pathlib.Path(d) / "llm_api_key.txt"
+            try:
+                app.save_llm_key("AIza-testkey-abcdefghijklmnop")
+                self.assertTrue(app.ensure_llm_config())
+                self.assertEqual(app.load_llm_config()["provider"], "gemini")
+            finally:
+                app.HERE = original_dir
+                app.LLM_KEY_FILE = original_key
+
+
 class TestPullWorkflow(unittest.TestCase):
     """
     The student prefers `git pull` over downloading zips, so the repo must be

@@ -1203,6 +1203,50 @@ def strip_quotes(value: str) -> str:
 
 
 
+def ensure_llm_config() -> bool:
+    """
+    Create llm_config.json when a key exists but the config does not.
+
+    A student pasting a key in Settings has already made the decision; asking
+    them to also copy a JSON template by hand is a step that exists only
+    because of how this was built. If the key looks like OpenAI or Google,
+    write the matching config.
+    """
+    if (HERE / "llm_config.json").exists():
+        return True
+    key = read_llm_key({})
+    if not key:
+        return False
+
+    if key.startswith("sk-"):
+        cfg = {
+            "provider": "openai",
+            "base_url": "https://api.openai.com/v1",
+            "model": "gpt-4o-mini",
+            "api_key_env": "OPENAI_API_KEY",
+            "timeout": 40,
+        }
+    elif key.startswith("AIza"):
+        cfg = {
+            "provider": "gemini",
+            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+            "model": "gemini-4-hydrogen",
+            "api_key_env": "GEMINI_API_KEY",
+            "timeout": 40,
+        }
+    else:
+        return False
+
+    try:
+        (HERE / "llm_config.json").write_text(
+            json.dumps(cfg, indent=2) + "\n", encoding="utf-8"
+        )
+        log_step("Created llm_config.json from your pasted key", ok=True)
+        return True
+    except OSError:
+        return False
+
+
 def read_llm_key(cfg: Optional[dict] = None) -> str:
     """
     The AI-chat key, from every place a student might reasonably have put it.
@@ -1639,12 +1683,20 @@ class Handler(BaseHTTPRequestHandler):
             log_step(f"LLM  ← no key. api_key_env = {cfg.get('api_key_env')!r}", ok=False)
             return self._json(503, {"error": "llm_no_key", "message": msg})
         if not cfg:
-            # Not configured is a normal state, not an error: the page answers
-            # locally instead. 503 lets it do that cleanly.
-            return self._json(503, {
-                "error": "llm_not_configured",
-                "message": "Add llm_config.json to enable AI answers.",
-            })
+            # No config file. If a key was pasted in Settings, the intent is
+            # unambiguous — write the config rather than returning 503 and
+            # leaving the student to discover a JSON file was required.
+            if read_llm_key({}):
+                created = ensure_llm_config()
+                cfg = load_llm_config() if created else None
+            if not cfg:
+                return self._json(503, {
+                    "error": "llm_not_configured",
+                    "message": (
+                        "No llm_config.json and no key. Paste your key in "
+                        "Settings → AI provider key, and a config will be created."
+                    ),
+                })
 
         system = (
             "You are PRESENCE AI, a pacing coach for Arab school students "
@@ -1953,8 +2005,14 @@ def print_configuration() -> None:
 
     cfg = load_llm_config()
     if not cfg:
-        log_step("No llm_config.json — the chat uses built-in rules")
-        return
+        # A key pasted in Settings means the intent is clear. Create the config
+        # instead of telling the student a file is missing.
+        if ensure_llm_config():
+            cfg = load_llm_config()
+        if not cfg:
+            log_step("No llm_config.json and no AI key — the chat uses built-in rules")
+            log_step("      Paste a key in Settings and a config is created for you.")
+            return
 
     key = read_llm_key(cfg)
     if key:
