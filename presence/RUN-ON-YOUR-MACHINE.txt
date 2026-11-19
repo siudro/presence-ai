@@ -127,12 +127,33 @@ Page looks old
     Press Cmd+Shift+R to hard-reload.
 
 
-RUN THE TESTS
--------------
-In a second Terminal window:
+RUN THE TESTS  (and see the results)
+------------------------------------
+Two commands, both print what they did:
 
-    cd ~/Downloads/presence
-    python3 test_app.py
-    python3 test_features.py
+  python3 run_all_tests.py       every test, grouped by feature
+  python3 run_all_tests.py -v    every individual test name
 
-Both should end with "OK".
+Expected ending:
+
+  All 221 tests passed (0.99s)
+
+CHECK YOUR CONNECTIONS  (are the services reachable?)
+-----------------------------------------------------
+  python3 check_connections.py
+
+This makes REAL requests and prints PASS / FAIL for each:
+
+  1. Project files present and importable
+  2. Cohere key present AND accepted by Cohere
+  3. Arabic transcription model available
+  4. Gemini key present AND answers a real question
+  5. llm_config.json valid, and its key present
+  6. Whether the app server is running on :8080
+
+It never prints a full key - only the last 4 characters - so it is safe to
+screenshot for your PDF.
+
+A FAIL means something is genuinely not connected. A SKIP means that part is
+optional and you have not set it up, which is fine.
+

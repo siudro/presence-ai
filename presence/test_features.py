@@ -1426,6 +1426,44 @@ class TestLongSessionCapacity(unittest.TestCase):
         self.assertEqual(len(session.timeline), 30)
 
 
+class TestTerminalTooling(unittest.TestCase):
+    """
+    The student asked to SEE results in the terminal. Two scripts exist for
+    that: one runs the tests, one checks whether the services connect.
+    """
+
+    def test_test_runner_exists(self):
+        path = os.path.join(HERE, "run_all_tests.py")
+        self.assertTrue(os.path.isfile(path))
+
+    def test_runner_reports_groups_not_just_ok(self):
+        src = open(os.path.join(HERE, "run_all_tests.py"), encoding="utf-8").read()
+        self.assertIn("Results by group", src)
+        self.assertIn("GroupReporter", src)
+
+    def test_connection_checker_exists(self):
+        path = os.path.join(HERE, "check_connections.py")
+        self.assertTrue(os.path.isfile(path))
+
+    def test_connection_checker_covers_every_service(self):
+        src = open(os.path.join(HERE, "check_connections.py"), encoding="utf-8").read()
+        self.assertIn("api.cohere.com", src)
+        self.assertIn("generativelanguage.googleapis.com", src)
+        self.assertIn("llm_config.json", src)
+
+    def test_connection_checker_never_prints_a_full_key(self):
+        """It is meant to be screenshot-able for the PDF."""
+        src = open(os.path.join(HERE, "check_connections.py"), encoding="utf-8").read()
+        self.assertIn('"…" + key[-4:]', src)
+        # And it must not print the key variable directly.
+        self.assertNotIn('print(key', src)
+
+    def test_connection_checker_reports_failures_honestly(self):
+        src = open(os.path.join(HERE, "check_connections.py"), encoding="utf-8").read()
+        self.assertIn("FAIL", src)
+        self.assertIn("return 1", src)
+
+
 class TestFreeLlmProvider(unittest.TestCase):
     """
     A free provider that needs no credit card. The config must be valid and
