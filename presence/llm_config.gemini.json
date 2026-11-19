@@ -1,0 +1,10 @@
+{
+  "_comment": "Google Gemini — FREE tier, no credit card required. Copy to llm_config.json.",
+  "_security": "NEVER put a real key in this file. Put it in the environment variable named by api_key_env.",
+  "_setup": "1) Get a key at https://aistudio.google.com/apikey (sign in with a Google account; no billing needed). 2) export GEMINI_API_KEY=\"...\" 3) cp llm_config.gemini.json llm_config.json 4) python3 app.py",
+  "provider": "gemini",
+  "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+  "model": "gemini-4-hydrogen",
+  "api_key_env": "GEMINI_API_KEY",
+  "timeout": 30
+}

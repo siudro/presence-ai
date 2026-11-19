@@ -1426,6 +1426,47 @@ class TestLongSessionCapacity(unittest.TestCase):
         self.assertEqual(len(session.timeline), 30)
 
 
+class TestFreeLlmProvider(unittest.TestCase):
+    """
+    A free provider that needs no credit card. The config must be valid and
+    must point at an OpenAI-compatible endpoint, since that is the only shape
+    the server speaks.
+    """
+
+    def test_gemini_config_exists_and_is_valid(self):
+        path = os.path.join(HERE, "llm_config.gemini.json")
+        self.assertTrue(os.path.isfile(path), "llm_config.gemini.json missing")
+        cfg = json.load(open(path, encoding="utf-8"))
+        self.assertEqual(cfg["provider"], "gemini")
+        self.assertTrue(cfg["base_url"].startswith("https://"))
+        self.assertTrue(cfg["model"])
+        self.assertEqual(cfg["api_key_env"], "GEMINI_API_KEY")
+
+    def test_gemini_config_uses_an_openai_compatible_path(self):
+        """The server only speaks /chat/completions."""
+        cfg = json.load(open(os.path.join(HERE, "llm_config.gemini.json"), encoding="utf-8"))
+        url = cfg["base_url"].rstrip("/") + "/chat/completions"
+        self.assertIn("/openai/", url)
+        self.assertTrue(url.endswith("/chat/completions"))
+
+    def test_config_carries_no_real_key(self):
+        cfg = json.load(open(os.path.join(HERE, "llm_config.gemini.json"), encoding="utf-8"))
+        for value in cfg.values():
+            self.assertNotIn("AIza", str(value), "looks like a real Google key")
+
+    def test_server_loads_the_gemini_config(self):
+        import shutil
+        src = os.path.join(HERE, "llm_config.gemini.json")
+        dst = os.path.join(HERE, "llm_config.json")
+        shutil.copyfile(src, dst)
+        try:
+            cfg = app.load_llm_config()
+            self.assertIsNotNone(cfg)
+            self.assertEqual(cfg["provider"], "gemini")
+        finally:
+            os.remove(dst)
+
+
 class TestBeforeTheSpotlight(unittest.TestCase):
     """
     The calm section. Every assertion guards either a real capability or an
