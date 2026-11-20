@@ -831,7 +831,11 @@ class TestLiveFeatures(unittest.TestCase):
         start = app.__file__
         src = open(start, encoding="utf-8").read()
         self.assertIn('payload.get("attachment")', src)
-        self.assertIn("never claim to have measured it", src)
+        # The clause now lives in the archived prompt constant; asserting the
+        # constant is USED keeps the archive and the wire in sync.
+        self.assertIn("never claim to have measured it", app.PROMPT_CHAT_COACH)
+        at = src.index("def _handle_llm")
+        self.assertIn("PROMPT_CHAT_COACH", src[at:at + 5000])
 
     def test_chat_panel_closes_on_escape(self):
         self.assertIn('event.key === "Escape"', self.js)
@@ -1487,13 +1491,22 @@ class TestServerConsole(unittest.TestCase):
         self.assertIn("print_configuration()", src[main_start:main_start + 1200])
 
     def test_chat_requests_are_logged_in_the_same_process(self):
-        """Every LLM call must print a line the student can see."""
+        """
+        Every LLM call must print a line the student can see.
+
+        The logging lives in the shared `call_llm` helper so all three prompts
+        log identically; asserting it only inside `_handle_llm` would let the
+        two newer routes run unlogged.
+        """
         src = open(app.__file__, encoding="utf-8").read()
-        start = src.index("def _handle_llm")
-        body = src[start:start + 6000]
+        start = src.index("def call_llm(")
+        body = src[start:start + 4000]
         self.assertIn("log_step", body)
-        self.assertIn("LLM  →", body)
-        self.assertIn("LLM  ←", body)
+        self.assertIn("LLM  \u2192", body)
+        self.assertIn("LLM  \u2190", body)
+        for handler in ("def _handle_llm", "def _handle_review", "def _handle_script"):
+            at = src.index(handler)
+            self.assertIn("call_llm(", src[at:at + 5000], handler + " must use call_llm")
 
     def test_access_log_is_suppressed_during_startup_tests(self):
         """
