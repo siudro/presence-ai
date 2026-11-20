@@ -2136,11 +2136,19 @@ def run_startup_checks() -> None:
         total = 0
         failed = 0
         skipped = 0
-        for module_name in ("test_app", "test_features"):
+        for module_name in ("test_app", "test_features", "test_tls"):
             try:
                 module = __import__(module_name)
             except Exception as exc:  # noqa: BLE001
-                log_step(f"{module_name}: could not import ({str(exc)[:60]})", ok=False)
+                if module_name == "test_tls":
+                    # Almost always an old checkout, not a broken install.
+                    # Without this the student just sees a smaller test count
+                    # and has no way to know their copy predates the fix.
+                    log_step("This copy is out of date: no certificate fix, "
+                             "so HTTPS will fail.", ok=False)
+                    log_step("      Run: python3 update_app.py", ok=False)
+                else:
+                    log_step(f"{module_name}: could not import ({str(exc)[:60]})", ok=False)
                 failed += 1
                 continue
             suite = unittest.TestLoader().loadTestsFromModule(module)
