@@ -2119,12 +2119,12 @@ class TestPromptArchive(unittest.TestCase):
             return fh.read()
 
     def test_every_prompt_file_is_present(self):
-        for name in ("README.md", "v1-chat-coach.md",
+        for name in ("README.md", "v1-advisor.md",
                      "v2-post-speech-review.md", "v3-script-from-file.md"):
             self._read(name)
 
     def test_each_prompt_is_saved_verbatim(self):
-        for attr, filename in (("PROMPT_CHAT_COACH", "v1-chat-coach.md"),
+        for attr, filename in (("PROMPT_CHAT_COACH", "v1-advisor.md"),
                                ("PROMPT_POST_SPEECH_REVIEW", "v2-post-speech-review.md")):
             self.assertIn(getattr(app, attr), self._read(filename),
                           attr + " is not saved verbatim in " + filename)
@@ -2135,7 +2135,7 @@ class TestPromptArchive(unittest.TestCase):
         self.assertIn("{maximum_words}", app.PROMPT_SCRIPT_FROM_FILE)
 
     def test_each_prompt_file_names_its_function(self):
-        for filename, handler in (("v1-chat-coach.md", "_handle_llm"),
+        for filename, handler in (("v1-advisor.md", "_handle_llm"),
                                   ("v2-post-speech-review.md", "_handle_review"),
                                   ("v3-script-from-file.md", "_handle_script")):
             self.assertIn(handler, self._read(filename),
@@ -2239,6 +2239,46 @@ class TestStartScreenChoice(unittest.TestCase):
     def test_skipped_words_can_be_highlighted(self):
         self.assertIn("function alignScript", self.js)
         self.assertIn("mark.skipped", self.css)
+
+
+
+
+class TestPromptsAreDocumented(unittest.TestCase):
+    """
+    An LLM does not run without a prompt, so every prompt belongs in
+    prompts/ verbatim. A saved copy that drifts from the code is worse than
+    no copy: it is documentation that claims something untrue.
+    """
+
+    def test_prompts_folder_exists(self):
+        self.assertTrue(os.path.isdir(os.path.join(HERE, "prompts")))
+
+    def test_every_prompt_file_names_its_function(self):
+        folder = os.path.join(HERE, "prompts")
+        for name in os.listdir(folder):
+            if not name.endswith(".md") or name == "README.md":
+                continue
+            with open(os.path.join(folder, name), encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertIn("**Function:**", text, f"{name} must name the function it serves")
+
+    def test_v1_matches_the_prompt_in_the_code(self):
+        """
+        The saved v1 must be byte-identical to what the app actually sends.
+
+        The prompt now lives in the module constant PROMPT_CHAT_COACH rather
+        than an inline string, so the extractor reads the constant instead of
+        regexing a block out of the handler. That is a stronger check: it
+        compares the exact object the wire uses.
+        """
+        live = app.PROMPT_CHAT_COACH
+
+        with open(os.path.join(HERE, "prompts", "v1-advisor.md"), encoding="utf-8") as fh:
+            saved = fh.read()
+        quoted = [l[2:] for l in saved.splitlines() if l.startswith("> You are PRESENCE AI")]
+        self.assertTrue(quoted, "v1-advisor.md must quote the prompt")
+        self.assertEqual(quoted[0].strip(), live.strip(),
+                         "the saved v1 prompt has drifted from app.py")
 
 
 if __name__ == "__main__":

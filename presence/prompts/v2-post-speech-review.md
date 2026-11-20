@@ -3,6 +3,7 @@
 **Status:** new in WAI-229 (R2).
 **Constant:** `PROMPT_POST_SPEECH_REVIEW` in `presence/app.py`.
 **Handler:** `_handle_review`.
+**Function:** `_handle_review` — sends at `POST /api/review`.
 **Route:** `POST /api/review` — automatically when the student ends a session.
 
 ## 1. Verbatim prompt

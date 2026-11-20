@@ -3,6 +3,7 @@
 **Status:** new in WAI-229 (R3, feeding R4 and R6).
 **Constant:** `PROMPT_SCRIPT_FROM_FILE` in `presence/app.py` (a template).
 **Handler:** `_handle_script`.
+**Function:** `_handle_script` — sends at `POST /api/script`.
 **Route:** `POST /api/script` — when the student chooses **Prepare a script**.
 
 ## 1. Verbatim prompt

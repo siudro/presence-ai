@@ -1,56 +1,35 @@
-# PRESENCE AI — prompt archive
+# PRESENCE AI — system prompts, saved verbatim
 
-Every system prompt this app sends to a language model, saved verbatim, with
-the function that sends it, why it is worded that way, and what failure
-produced the next version.
+Every prompt the app sends to the model is recorded here, word for word, with the
+function it serves and the route that calls it. This is the evidence for the
+WAICY *Iterative Development* row (25 points).
 
-This folder is documentation, not code. The live strings are in
-`presence/app.py` as the constants `PROMPT_CHAT_COACH`,
-`PROMPT_POST_SPEECH_REVIEW` and `PROMPT_SCRIPT_FROM_FILE`. Each file below
-quotes its prompt **verbatim** — if the file and the code disagree, the code
-is right and this file is stale. That is guarded: `test_features.py` contains
-`TestPromptArchive`, which asserts each constant appears word-for-word in its
-file, so the documentation cannot drift away from what is actually sent.
+## Why this folder exists
 
-## Why the archive exists
+The first prompt lived only inside a chat thread. A prompt that is not saved
+somewhere the student controls disappears, and with it the record the rubric
+asks about.
 
-The WAICY LLM rubric places 25 of 100 points on **Iterative Development**.
-A prompt that changed five times and nobody wrote down why scores like a
-prompt that never changed.
+## The rule
 
-## The rule every prompt here obeys
+An LLM does not run without a prompt. If a new function in the app calls a
+model, its prompt belongs here before it ships — not after.
+
+## The other rule, which every prompt states
 
 > **Code measures. The LLM coaches.**
 
-Numbers — wpm, filler counts, pause counts, freezes, volume — are computed in
-`app.py` and handed to the model inside the input. The model may interpret
-them. It may never produce one that was not measured. Every prompt in this
-folder states that rule, because when it was only true by accident the advisor
-invented wpm figures that no measurement produced.
+Numbers — wpm, fillers, pauses, freezes, volume — are computed in `app.py` and
+handed to the model inside the input. The model may interpret them, never
+produce one that was not measured.
 
-## Index
+## Files
 
-| Version | File | Function it serves | Route |
-|---|---|---|---|
-| v1 (current, unchanged) | `v1-chat-coach.md` | `_handle_llm` — every chat question | `POST /api/llm` |
-| v2 | `v2-post-speech-review.md` | `_handle_review` — review after a speech | `POST /api/review` |
-| v3 | `v3-script-from-file.md` | `_handle_script` — script prepared from an uploaded file | `POST /api/script` |
+| File | Function it serves | Route | Status |
+| --- | --- | --- | --- |
+| `v1-advisor.md` | `_handle_llm` — the single coach reply | `POST /api/llm` | current, unchanged |
+| `v2-post-speech-review.md` | `_handle_review` — review after a speech | `POST /api/review` | new (WAI-229 R2) |
+| `v3-script-from-file.md` | `_handle_script` — script from an uploaded file | `POST /api/script` | new (WAI-229 R3) |
 
-## What was NOT changed, and why that matters
-
-`v1` is the prompt that was already live. It is preserved verbatim rather than
-improved, so the archive starts from a real baseline instead of a tidy
-recollection. v2 and v3 are **new functions with new prompts**, not edits to
-v1 — the chat coach still behaves exactly as it did before.
-
-## How to read a prompt file
-
-Each file has the same five sections:
-
-1. **Verbatim prompt** — copy-pasteable, nothing summarised.
-2. **Function it serves** — the handler and the HTTP route.
-3. **How it is built** — what the code appends to it at call time and in what
-   order.
-4. **Why it is worded that way** — the requirement each clause satisfies.
-5. **What motivated it** — the failure that produced this version, and what
-   was true before it existed.
+Prompts live in `app.py` as `PROMPT_CHAT_COACH`, `PROMPT_POST_SPEECH_REVIEW`
+and `PROMPT_SCRIPT_FROM_FILE`. Tests assert each saved copy matches the code.
