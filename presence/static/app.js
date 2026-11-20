@@ -1680,6 +1680,24 @@ function showReport(serverReport, m, transcript, transcriptSourceText) {
       : " Transcribed in your browser.";
     src.textContent = measured + spoken;
   }
+
+  // ---- R6: align the script the student read against the transcript.
+  // Only when a script was actually used; an alignment with no script would be
+  // a confident answer to a question nobody asked.
+  let scriptComparison = null;
+  if (SCRIPT.mode === "script" && SCRIPT.text && transcript) {
+    SCRIPT.alignment = alignScript(SCRIPT.text, transcript);
+    markSkippedWords();
+    if (SCRIPT.alignment && !SCRIPT.alignment.tooLong) {
+      scriptComparison = { missing: SCRIPT.alignment.count,
+                           total: SCRIPT.alignment.total };
+    }
+  } else if (SCRIPT.mode !== "script") {
+    SCRIPT.alignment = null;
+  }
+
+  // ---- R2: the coach reviews the measured numbers.
+  loadReview(serverReport, scriptComparison);
 }
 
 /* =================================================================== chat */
@@ -2712,6 +2730,94 @@ function initSession() {
   }
 }
 
+/* ======================================================= script wiring */
+
+async function makeScript() {
+  const source = $("scriptSource");
+  const btn = $("scriptMakeBtn");
+  const text = source ? (source.value || "").trim() : "";
+  if (!text) { scriptErrorMessage("Add some notes or a text file first."); return; }
+
+  scriptErrorMessage("");
+  scriptStatus("Writing your script…");
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await Promise.race([
+      fetch("/api/script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text, target_seconds: 120 }),
+      }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 60000)),
+    ]);
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok && data.answer) {
+      SCRIPT.text = data.answer;
+      SCRIPT.alignment = null;
+      SCRIPT.mode = "script";
+      const words = data.words || SCRIPT.text.split(/\s+/).length;
+      scriptStatus("Your script is ready — " + words +
+        " words. It will appear on screen while you read.");
+      renderTeleprompter(-1);
+      updateScriptGate();
+      toast("Script ready");
+      return;
+    }
+    scriptErrorMessage(data.message ||
+      "The script could not be written. Check the AI key in Settings.");
+    scriptStatus("");
+  } catch (err) {
+    scriptErrorMessage("The AI did not answer in time. Try again, or paste a shorter excerpt.");
+  } finally {
+    updateScriptGate();
+  }
+}
+
+function initScript() {
+  const improv = $("modeImprovise");
+  const script = $("modeScript");
+  if (improv) improv.addEventListener("click", () => setMode("improvise"));
+  if (script) script.addEventListener("click", () => setMode("script"));
+
+  const file = $("scriptFile");
+  if (file) {
+    file.addEventListener("change", (e) => {
+      const f = e.target.files && e.target.files[0];
+      handleScriptFile(f);
+      e.target.value = "";   // so choosing the same file twice fires again
+    });
+  }
+
+  const pasteBtn = $("scriptPasteBtn");
+  const source = $("scriptSource");
+  if (pasteBtn && source) {
+    pasteBtn.addEventListener("click", () => {
+      source.hidden = false;
+      source.focus();
+      updateScriptGate();
+    });
+  }
+  if (source) source.addEventListener("input", updateScriptGate);
+
+  const makeBtn = $("scriptMakeBtn");
+  if (makeBtn) makeBtn.addEventListener("click", makeScript);
+
+  const toggle = $("scriptViewToggle");
+  const box = $("teleprompterBox");
+  if (toggle && box) {
+    toggle.addEventListener("click", () => {
+      const hidden = box.style.display === "none";
+      box.style.display = hidden ? "" : "none";
+      toggle.textContent = hidden ? "Hide" : "Show";
+      toggle.setAttribute("aria-expanded", String(hidden));
+    });
+  }
+
+  setMode("improvise");
+}
+
 function initChat() {
   const btn = $("chatSendBtn");
   const input = $("chatInput");
@@ -3007,6 +3113,7 @@ if (heatmapBox) heatmapBox.addEventListener("click", onHeatmapClick);
 
 initSettings();
 initSession();
+initScript();
 initChat();
 checkOffline();
 
@@ -3057,7 +3164,16 @@ window.addEventListener("presence:transcript", (event) => {
   const panel = $("transcriptPanel");
   if (!panel) return;
   const settled = (t.text || "").trim();
+
+  // R8: every sentence that arrives is appended, never replaced. Accumulating
+  // here (rather than reassigning) is what keeps the whole transcript alive
+  // past the second line.
   renderTranscriptLikeLyrics(panel, settled);
+
+  // R7: move the prompter to keep pace with what has been said so far.
+  if (SCRIPT.mode === "script" && SCRIPT.text) {
+    advanceTeleprompter(settled.split(/\s+/).filter(Boolean).length);
+  }
 });
 
 /* ================================================================== paint */
