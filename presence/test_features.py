@@ -2184,6 +2184,12 @@ class TestPostSpeechReview(unittest.TestCase):
 class TestScriptFromFile(unittest.TestCase):
     """WAI-229 R3/R4: an uploaded text becomes a script, honestly limited."""
 
+    @classmethod
+    def setUpClass(cls):
+        for name in ("index.html", "app.js", "app.css"):
+            with open(os.path.join(HERE, "static", name), encoding="utf-8") as fh:
+                setattr(cls, name.split(".")[0], fh.read())
+
     def test_prompt_forbids_adding_facts(self):
         self.assertIn("do not add facts that are not in it", app.PROMPT_SCRIPT_FROM_FILE)
 
@@ -2207,6 +2213,12 @@ class TestScriptFromFile(unittest.TestCase):
 
 class TestStartScreenChoice(unittest.TestCase):
     """WAI-229 R5/R10: from the first screen, improvise or prepare a script."""
+
+    @classmethod
+    def setUpClass(cls):
+        for name in ("index.html", "app.js", "app.css"):
+            with open(os.path.join(HERE, "static", name), encoding="utf-8") as fh:
+                setattr(cls, name.split(".")[0], fh.read())
 
     def test_both_paths_are_on_the_home_screen(self):
         for ident in ("modeImprovise", "modeScript"):
