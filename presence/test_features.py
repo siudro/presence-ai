@@ -2092,5 +2092,43 @@ class TestUpdateAdoptsZipFolder(unittest.TestCase):
         self.assertIn('"--branch", "main"', src)
 
 
+
+
+class TestPromptsAreDocumented(unittest.TestCase):
+    """
+    An LLM does not run without a prompt, so every prompt belongs in
+    prompts/ verbatim. A saved copy that drifts from the code is worse than
+    no copy: it is documentation that claims something untrue.
+    """
+
+    def test_prompts_folder_exists(self):
+        self.assertTrue(os.path.isdir(os.path.join(HERE, "prompts")))
+
+    def test_every_prompt_file_names_its_function(self):
+        folder = os.path.join(HERE, "prompts")
+        for name in os.listdir(folder):
+            if not name.endswith(".md") or name == "README.md":
+                continue
+            with open(os.path.join(folder, name), encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertIn("**Function:**", text, f"{name} must name the function it serves")
+
+    def test_v1_matches_the_prompt_in_the_code(self):
+        """The saved v1 must be byte-identical to what the app actually sends."""
+        import re
+        with open(os.path.join(HERE, "app.py"), encoding="utf-8") as fh:
+            code = fh.read()
+        m = re.search(r"system = \(\n(.*?)\n        \)", code, re.S)
+        self.assertIsNotNone(m, "the system prompt block moved; update this test")
+        live = "".join(re.findall(r'"(.*?)"', m.group(1)))
+
+        with open(os.path.join(HERE, "prompts", "v1-advisor.md"), encoding="utf-8") as fh:
+            saved = fh.read()
+        quoted = [l[2:] for l in saved.splitlines() if l.startswith("> You are PRESENCE AI")]
+        self.assertTrue(quoted, "v1-advisor.md must quote the prompt")
+        self.assertEqual(quoted[0].strip(), live.strip(),
+                         "the saved v1 prompt has drifted from app.py")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
