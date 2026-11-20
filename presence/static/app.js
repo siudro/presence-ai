@@ -2405,30 +2405,480 @@ function exportSession() {
   }
 }
 
-/* ============================================================ passage */
+/* ============================================================ script */
 
 /*
- * Optional practice passage. When the student pastes what they intend to say,
- * it is shown beside the live transcript so they can glance at it. It is never
- * compared automatically: word-matching a spoken transcript against a written
- * script would produce confident nonsense, since ASR output differs by design.
+ * The "prepare a script" path (WAI-229 R3, R4, R7).
+ *
+ * SCRIPT.mode       "improvise" | "script"
+ * SCRIPT.text       the script the student will read, or ""
+ * SCRIPT.alignment  the per-word match against the transcript, after a run
+ *
+ * WHAT THIS DOES NOT DO. It does not read a .pptx or a .pdf: those are a ZIP of
+ * XML and a binary container, and this app is stdlib-only with no parser.
+ * handleScriptFile() accepts text and says why it refuses anything else, because
+ * claiming support that does not exist is the one failure this product must
+ * never have.
  */
+
+const SCRIPT = { mode: "improvise", text: "", alignment: null, sourceName: "" };
+const SCRIPT_TEXT_EXTENSIONS = [".txt", ".md", ".markdown"];
+const ALIGNMENT_MAX_WORDS = 1200;
+
+function setMode(mode) {
+  SCRIPT.mode = mode === "script" ? "script" : "improvise";
+  const improv = $("modeImprovise");
+  const script = $("modeScript");
+  const prep = $("scriptPrep");
+  if (improv) {
+    improv.classList.toggle("active", SCRIPT.mode === "improvise");
+    improv.setAttribute("aria-checked", String(SCRIPT.mode === "improvise"));
+  }
+  if (script) {
+    script.classList.toggle("active", SCRIPT.mode === "script");
+    script.setAttribute("aria-checked", String(SCRIPT.mode === "script"));
+  }
+  if (prep) prep.hidden = SCRIPT.mode !== "script";
+  updateScriptGate();
+}
+
+function updateScriptGate() {
+  const makeBtn = $("scriptMakeBtn");
+  const source = $("scriptSource");
+  const hasText = !!(source && (source.value || "").trim()) || !!SCRIPT.text;
+  if (makeBtn) makeBtn.disabled = !hasText;
+
+  // The primary button changes label with the mode, so the student never has to
+  // remember which door they chose.
+  const startBtn = $("startBtn");
+  if (startBtn) {
+    const label = (SCRIPT.mode === "script" && SCRIPT.text)
+      ? "Read from my script" : "Start speaking";
+    const svg = startBtn.querySelector("svg");
+    startBtn.textContent = "";
+    if (svg) startBtn.appendChild(svg);
+    startBtn.appendChild(document.createTextNode(" " + label));
+  }
+}
+
+function scriptErrorMessage(text) {
+  const box = $("scriptError");
+  if (!box) return;
+  if (!text) {
+    box.hidden = true;
+    box.textContent = "";
+    box.classList.remove("is-error");
+    return;
+  }
+  box.hidden = false;
+  box.classList.add("is-error");
+  box.textContent = text;
+}
+
+function scriptStatus(text) {
+  const box = $("scriptStatus");
+  if (box) box.textContent = text || "";
+}
+
+function handleScriptFile(file) {
+  if (!file) return;
+  const ext = fileExtension(file.name);
+  const isText = file.type.startsWith("text/") || SCRIPT_TEXT_EXTENSIONS.indexOf(ext) >= 0;
+
+  if (!isText) {
+    // Name the limit, name the fix. Never silently do nothing.
+    const looksLikeDeck = [".pptx", ".ppt", ".key", ".pdf", ".docx", ".doc", ".pages"]
+      .indexOf(ext) >= 0;
+    scriptErrorMessage(
+      looksLikeDeck
+        ? "“" + file.name + "” is a " + ext.replace(".", "").toUpperCase() +
+          " file. This app cannot read PowerPoint, PDF or Word — they are packed " +
+          "formats, not text. Open it, copy the words, and paste them below " +
+          "(or export as .txt)."
+        : "“" + file.name + "” is not a text file. Use .txt or .md, or paste the words below."
+    );
+    toast("Text files only");
+    return;
+  }
+
+  if (file.size > 400 * 1024) {
+    scriptErrorMessage("That file is " + Math.round(file.size / 1024) +
+      " KB. The limit is 400 KB — paste the important part instead.");
+    return;
+  }
+
+  file.text().then((text) => {
+    if (!text.trim()) {
+      scriptErrorMessage("That file is empty.");
+      return;
+    }
+    SCRIPT.sourceName = file.name;
+    const box = $("scriptSource");
+    if (box) {
+      box.value = text.slice(0, 12000);
+      box.hidden = false;
+    }
+    scriptErrorMessage("");
+    scriptStatus("Read " + file.name + ". Press the button to write the script.");
+    updateScriptGate();
+  }).catch(() => scriptErrorMessage("That file could not be read."));
+}
+
+/* Split a script into sentences so the prompter can move line by line. */
+function splitScriptLines(text) {
+  const out = [];
+  const raw = (text || "").replace(/\r\n/g, "\n").split(/\n+/);
+  raw.forEach((para) => {
+    const pieces = para.match(/[^.!?…]+[.!?…]+["’”]?|[^.!?…]+$/g) || [para];
+    pieces.forEach((piece) => {
+      const t = piece.trim();
+      if (t) out.push(t);
+    });
+  });
+  return out;
+}
+
+/*
+ * R4: the script appears in the reading area while the student speaks.
+ * R7: it is a teleprompter - the current line is lit, earlier ones dim.
+ */
+function renderTeleprompter(activeIndex) {
+  const view = $("scriptView");
+  const box = $("teleprompterText");
+  const note = $("scriptViewNote");
+  if (!view || !box) return;
+
+  if (SCRIPT.mode !== "script" || !SCRIPT.text) {
+    view.hidden = true;
+    box.innerHTML = "";
+    if (note) note.hidden = true;
+    return;
+  }
+
+  view.hidden = false;
+  const lines = splitScriptLines(SCRIPT.text);
+  const active = typeof activeIndex === "number" ? activeIndex : -1;
+
+  box.innerHTML = lines.map((line, i) => {
+    const cls = i === active ? "is-current"
+      : (active >= 0 && i < active ? "is-past" : "");
+    return '<span class="tline ' + cls + '">' + escapeHtml(line) + "</span>";
+  }).join("");
+
+  const current = box.querySelector(".is-current");
+  if (current && current.scrollIntoView) {
+    current.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+}
+
+/*
+ * Move the prompter to the sentence the student is likely reading, from how
+ * many words have been spoken. A READING AID, not a measurement: it never
+ * claims a word was said, only moves the highlight. The precise per-word
+ * judgement happens after the session, in alignScript().
+ */
+function advanceTeleprompter(spokenWordCount) {
+  if (SCRIPT.mode !== "script" || !SCRIPT.text) return;
+  const lines = splitScriptLines(SCRIPT.text);
+  if (!lines.length) return;
+  let running = 0;
+  let index = 0;
+  for (let i = 0; i < lines.length; i++) {
+    running += lines[i].split(/\s+/).filter(Boolean).length;
+    if (spokenWordCount <= running) {
+      index = i;
+      break;
+    }
+    index = i;
+  }
+  const box = $("teleprompterText");
+  const currentEl = box && box.querySelector(".is-current");
+  if (currentEl && currentEl.textContent === lines[index]) return;  // no needless re-render
+  renderTeleprompter(index);
+}
+
 function readPassage() {
-  const box = $("passageInput");
-  return box ? (box.value || "").trim() : "";
+  // The old optional-passage box is gone (WAI-229 R5 replaced it with the
+  // improvise/script choice). The script is the only text the student reads.
+  return "";
 }
 
 function showPassage() {
-  const view = $("passageView");
-  if (!view) return;
-  const text = readPassage();
-  if (!text) {
-    view.hidden = true;
-    view.innerHTML = "";
-    return;
+  // The speaking screen shows the script view instead of a glance-card.
+  renderTeleprompter(-1);
+}
+
+/* ====================================================== script alignment */
+
+/*
+ * R6: which script words did the student NOT say?
+ *
+ * THE HONEST VERSION. This is APPROXIMATE word alignment, not forced
+ * alignment. It normalises both sides (lowercase, strip punctuation) and walks
+ * them with a longest-common-subsequence table, so a word is "missing" only
+ * when it is genuinely absent from the transcript's order. O(n*m) over words,
+ * bounded at ALIGNMENT_MAX_WORDS.
+ *
+ * WHAT IT CANNOT DO. A paraphrase ("I think that" for "I believe that") reads
+ * as missing even though the meaning landed; ASR substitutions do the same. The
+ * UI therefore says "not detected", never "you forgot", and the script view
+ * carries that same note. That is why only the COUNT is passed to the coach.
+ */
+function normaliseWord(w) {
+  return (w || "").toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[^\p{L}\p{N}']/gu, "");
+}
+
+function tokeniseForAlignment(text) {
+  return (text || "").split(/\s+/).map(normaliseWord).filter(Boolean);
+}
+
+function alignScript(scriptText, transcriptText) {
+  const a = tokeniseForAlignment(scriptText);
+  const b = tokeniseForAlignment(transcriptText);
+  if (!a.length) return null;
+  if (a.length > ALIGNMENT_MAX_WORDS || b.length > ALIGNMENT_MAX_WORDS) {
+    return { missing: [], count: 0, total: a.length, ratio: 0, tooLong: true };
+  }
+
+  const n = a.length;
+  const m = b.length;
+  const width = m + 1;
+  // One flat typed buffer: a 1200x1200 grid of nested arrays would allocate a
+  // million objects.
+  const table = new Uint16Array((n + 1) * width);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      table[i * width + j] = a[i] === b[j]
+        ? table[(i + 1) * width + (j + 1)] + 1
+        : Math.max(table[(i + 1) * width + j], table[i * width + (j + 1)]);
+    }
+  }
+
+  const missing = [];
+  let i = 0;
+  let j = 0;
+  while (i < n) {
+    if (j < m && a[i] === b[j]) {
+      i++; j++;
+    } else if (j < m && table[(i + 1) * width + j] >= table[i * width + (j + 1)]) {
+      i++;
+    } else if (j < m) {
+      missing.push(i); j++;
+    } else {
+      missing.push(i); i++;
+    }
+  }
+
+  return {
+    missing: missing,
+    count: missing.length,
+    total: n,
+    ratio: missing.length / n,
+    tooLong: false,
+  };
+}
+
+/* Mark skipped words inside the teleprompter, after the session ends. */
+function markSkippedWords() {
+  if (SCRIPT.mode !== "script" || !SCRIPT.text) return;
+  const box = $("teleprompterText");
+  const note = $("scriptViewNote");
+  const view = $("scriptView");
+  if (!box || !view) return;
+
+  const align = SCRIPT.alignment;
+  const lines = splitScriptLines(SCRIPT.text);
+  const missingSet = new Set((align && !align.tooLong) ? align.missing : []);
+
+  let flat = 0;
+  box.innerHTML = lines.map((line) => {
+    const words = line.split(/\s+/).filter(Boolean);
+    const html = words.map((raw) => {
+      const idx = flat++;
+      const cls = missingSet.has(idx) ? ' class="skipped"' : "";
+      return "<mark" + cls + ">" + escapeHtml(raw) + "</mark>";
+    }).join(" ");
+    return '<span class="tline">' + html + "</span>";
+  }).join("");
+
+  // A <mark> without .skipped should look like ordinary text.
+  box.querySelectorAll("mark:not(.skipped)").forEach((el) => {
+    el.style.background = "none";
+    el.style.color = "inherit";
+    el.style.padding = "0";
+  });
+
+  if (note) {
+    if (align && align.tooLong) {
+      note.hidden = false;
+      note.textContent = "The script is too long to compare word by word. " +
+        "Pace and pausing were still measured.";
+    } else if (align && align.total > 0) {
+      note.hidden = false;
+      note.textContent = align.count === 0
+        ? "Every word of your script was detected in the transcript."
+        : align.count + " of " + align.total + " script words were not detected " +
+          "(highlighted). This is an approximate match — a reworded sentence can " +
+          "be marked even though the meaning was delivered.";
+    } else {
+      note.hidden = true;
+    }
   }
   view.hidden = false;
-  view.innerHTML = '<span class="phead">Your passage</span>' + escapeHtml(text);
+}
+
+/* ============================================================ the review */
+
+/*
+ * R2: the coach reviews the session from the measured numbers.
+ *
+ * THE ORDER MATTERS. The numbers are already on screen before this runs; the
+ * review fills in beside them. With no AI key the area says so in one line - it
+ * never falls back to a template that reads like a model wrote it, because a
+ * student cannot tell the difference and the PDF must not claim one.
+ */
+async function loadReview(report, scriptComparison) {
+  const body = $("reviewBody");
+  const source = $("reviewSource");
+  if (!body) return;
+
+  body.innerHTML = '<p class="reviewpending">Reading your numbers…</p>';
+  if (source) source.textContent = "";
+
+  if (!report || !report.tools) {
+    body.innerHTML = '<p class="reviewpending">No measurements were available ' +
+      "for this session, so there is nothing to review.</p>";
+    return;
+  }
+
+  try {
+    const res = await Promise.race([
+      fetch("/api/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ report: report, script_comparison: scriptComparison || null }),
+      }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 40000)),
+    ]);
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok && data.answer) {
+      body.innerHTML = data.answer
+        .split(/\n+/)
+        .filter((p) => p.trim())
+        .map((p) => "<p>" + escapeHtml(p.trim()) + "</p>")
+        .join("");
+      if (source) {
+        source.textContent = "Written by " +
+          (data.model || data.provider || "your AI provider") +
+          " from the numbers above only.";
+      }
+      return;
+    }
+
+    body.innerHTML = '<p class="reviewpending reviewerror">' +
+      escapeHtml(data.message || "The coach could not write a review for this session.") +
+      "</p>";
+    if (source) {
+      source.textContent = "The numbers above are still yours — they were measured on this device.";
+    }
+  } catch (err) {
+    body.innerHTML = '<p class="reviewpending reviewerror">The coach did not answer in ' +
+      "time. Your measurements are still above.</p>";
+  }
+}
+
+/* ======================================================= script wiring */
+
+async function makeScript() {
+  const source = $("scriptSource");
+  const btn = $("scriptMakeBtn");
+  const text = source ? (source.value || "").trim() : "";
+  if (!text) {
+    scriptErrorMessage("Add some notes or a text file first.");
+    return;
+  }
+
+  scriptErrorMessage("");
+  scriptStatus("Writing your script…");
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await Promise.race([
+      fetch("/api/script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: text, target_seconds: 120 }),
+      }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 60000)),
+    ]);
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok && data.answer) {
+      SCRIPT.text = data.answer;
+      SCRIPT.alignment = null;
+      SCRIPT.mode = "script";
+      const words = data.words || SCRIPT.text.split(/\s+/).length;
+      scriptStatus("Your script is ready — " + words +
+        " words. It will appear on screen while you read.");
+      renderTeleprompter(-1);
+      updateScriptGate();
+      toast("Script ready");
+      return;
+    }
+    scriptErrorMessage(data.message ||
+      "The script could not be written. Check the AI key in Settings.");
+    scriptStatus("");
+  } catch (err) {
+    scriptErrorMessage("The AI did not answer in time. Try again, or paste a shorter excerpt.");
+  } finally {
+    updateScriptGate();
+  }
+}
+
+function initScript() {
+  const improv = $("modeImprovise");
+  const script = $("modeScript");
+  if (improv) improv.addEventListener("click", () => setMode("improvise"));
+  if (script) script.addEventListener("click", () => setMode("script"));
+
+  const file = $("scriptFile");
+  if (file) {
+    file.addEventListener("change", (e) => {
+      const f = e.target.files && e.target.files[0];
+      handleScriptFile(f);
+      e.target.value = "";
+    });
+  }
+
+  const pasteBtn = $("scriptPasteBtn");
+  const source = $("scriptSource");
+  if (pasteBtn && source) {
+    pasteBtn.addEventListener("click", () => {
+      source.hidden = false;
+      source.focus();
+      updateScriptGate();
+    });
+  }
+  if (source) source.addEventListener("input", updateScriptGate);
+
+  const makeBtn = $("scriptMakeBtn");
+  if (makeBtn) makeBtn.addEventListener("click", makeScript);
+
+  const toggle = $("scriptViewToggle");
+  const box = $("teleprompterBox");
+  if (toggle && box) {
+    toggle.addEventListener("click", () => {
+      const hidden = box.style.display === "none";
+      box.style.display = hidden ? "" : "none";
+      toggle.textContent = hidden ? "Hide" : "Show";
+      toggle.setAttribute("aria-expanded", String(hidden));
+    });
+  }
+
+  setMode("improvise");
 }
 
 /* ============================================================ UI plumbing */
