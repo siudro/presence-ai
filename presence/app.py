@@ -1134,7 +1134,7 @@ def llm_status() -> dict:
     cfg = load_llm_config()
     return {
         "configured": bool(key),
-        "hint": ("\u2026" + key[-4:]) if len(key) >= 8 else "",
+        "hint": ("…" + key[-4:]) if len(key) >= 8 else "",
         "model": (cfg or {}).get("model", ""),
         "provider": (cfg or {}).get("provider", ""),
         "config_exists": (HERE / "llm_config.json").is_file(),
@@ -1530,6 +1530,146 @@ def load_llm_config() -> Optional[dict]:
     return cfg
 
 
+# ---------------------------------------------------------------------------
+# The three system prompts, in one place.
+#
+# Every prompt the app sends is defined here and archived verbatim in
+# presence/prompts/. Keeping them as constants - rather than inline strings in
+# three handlers - is what makes the archive checkable: a test asserts each
+# constant appears verbatim in its prompt file, so the documentation cannot
+# drift away from what is actually sent.
+#
+# The rule all three obey: CODE MEASURES, THE LLM COACHES.
+# ---------------------------------------------------------------------------
+
+PROMPT_CHAT_COACH = (
+    "You are PRESENCE AI, a pacing coach for Arab school students "
+    "presenting in English. Answer in 2-4 short sentences. Only use "
+    "the numbers given to you. Never invent a measurement: if a number "
+    "is missing, say it was not measured. "
+    "If the student attaches a file, you may quote or summarise it, but "
+    "never claim to have measured it \u2014 a file is text, not a recording."
+)
+
+PROMPT_POST_SPEECH_REVIEW = (
+    "You are PRESENCE AI, a pacing coach for Arab school students presenting "
+    "in English. You are writing the review that appears the moment a student "
+    "finishes speaking, beneath the numbers they just produced. Write it as a "
+    "coach speaking to the student after a rehearsal: first person, warm and "
+    "specific, 2-4 short sentences. Use ONLY the measured numbers given to "
+    "you. Name the one number that matters most for this student right now, "
+    "and give exactly one concrete thing to change next time. Never invent a "
+    "measurement: if a number is missing or marked not measured, do not "
+    "mention it, and do not estimate it. Never tell the student a number is "
+    "good or bad without saying what it was measured against. If the student "
+    "was reading from a script, you may mention words they left out if and "
+    "only if that is given to you as a measured count. Do not quote the whole "
+    "transcript back, and do not give a list."
+)
+
+PROMPT_SCRIPT_FROM_FILE = (
+    "You are PRESENCE AI, a speech-writing assistant for Arab school students "
+    "presenting in English. The student has uploaded the text of a "
+    "presentation they must give, or notes for one. Turn it into a script they "
+    "can read aloud at a pace of about 118 words per minute, which is the "
+    "normal pace for a school presentation in English. Write it in the first "
+    "person, as the student would say it out loud: short sentences, no bullet "
+    "points, no headings, no speaker labels, no stage directions, no markdown. "
+    "Keep every fact, name and number from the source and do not add facts "
+    "that are not in it. If the source is only a list of headings with no "
+    "content, turn each heading into one or two spoken sentences and nothing "
+    "more; say nothing you cannot derive from the source. Write between "
+    "{minimum_words} and {maximum_words} words. Output only the script text, "
+    "with no preamble and no closing remark."
+)
+
+
+class LLMNotConfigured(Exception):
+    """No usable provider: the page must answer from its own measurements."""
+
+
+class LLMCallFailed(Exception):
+    """The provider was configured but the request did not produce an answer."""
+
+    def __init__(self, message: str, status: int = 502) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
+             timeout=None):
+    """
+    One request to the configured provider, using the OpenAI chat shape that
+    Ollama and most local servers also speak.
+
+    Raises LLMNotConfigured when there is no config or no key, and
+    LLMCallFailed when the provider returns nothing usable. Both become honest
+    messages in the handlers - never a silent fallback that looks like the AI
+    answered.
+    """
+    cfg = load_llm_config()
+    if cfg and not read_llm_key(cfg):
+        raise LLMNotConfigured(
+            "llm_config.json exists but no usable key was found. "
+            "Paste your key in Settings -> AI provider key, or set "
+            "'api_key_env' to the NAME of an environment variable "
+            "(currently: " + repr(cfg.get("api_key_env")) + ")."
+        )
+    if not cfg:
+        if read_llm_key({}):
+            created = ensure_llm_config()
+            cfg = load_llm_config() if created else None
+        if not cfg:
+            raise LLMNotConfigured(
+                "No llm_config.json and no key. Paste your key in "
+                "Settings -> AI provider key, and a config will be created."
+            )
+
+    body = {
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    url = cfg["base_url"].rstrip("/") + "/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    key = read_llm_key(cfg)
+    if key:
+        headers["Authorization"] = "Bearer " + key
+
+    model_name = cfg.get("model", "?")
+    log_step("LLM  → " + model_name + " at " + cfg["base_url"] + "  [" + label + "]")
+    log_step("LLM    key " + (("…" + key[-4:]) if key else "(none)")
+             + "  system " + str(len(system)) + " chars")
+    started = time.time()
+    try:
+        import urllib.request as _ur
+        req = _ur.Request(url, data=json.dumps(body).encode("utf-8"),
+                          method="POST", headers=headers)
+        with _ur.urlopen(req, timeout=timeout or cfg.get("timeout", 25)) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        elapsed = time.time() - started
+        answer = ""
+        choices = data.get("choices") or []
+        if choices:
+            answer = (choices[0].get("message") or {}).get("content", "")
+        answer = (answer or "").strip()
+        if not answer:
+            log_step("LLM  ← empty completion  [" + label + "]", ok=False)
+            raise LLMCallFailed("The AI provider returned an empty answer.")
+        log_step("LLM  ← " + str(len(answer)) + " chars in "
+                 + format(elapsed, ".1f") + "s  [" + label + "]", ok=True)
+        return {"answer": answer, "provider": cfg.get("provider", "custom"),
+                "model": model_name}
+    except LLMCallFailed:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log_step("LLM  ← FAILED: " + str(exc)[:120] + "  [" + label + "]", ok=False)
+        raise LLMCallFailed(str(exc)[:200]) from exc
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "PresenceAI/1.0"
 
@@ -1635,6 +1775,10 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/llm":
             return self._handle_llm()
+        if path == "/api/review":
+            return self._handle_review()
+        if path == "/api/script":
+            return self._handle_script()
         if path == "/api/chat":
             return self._handle_chat()
         if path == "/api/key":
@@ -1658,24 +1802,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _handle_llm(self) -> None:
         """
-        Optional LLM chat endpoint.
-
-        This is the "API place for the LLM" — one place to plug in any provider
-        so the whole application can be exercised, not just transcription.
-
-        Configuration lives in llm_config.json next to this file:
-            {
-              "provider": "openai",          // openai | ollama | custom
-              "base_url": "https://api.openai.com/v1",
-              "model": "gpt-4o-mini",
-              "api_key_env": "LLM_API_KEY"   // env var to read, never a literal
-            }
-
-        The key is read from the environment, never from the JSON file and
-        never from the browser, so a shared config cannot leak it.
-
-        Shape follows the OpenAI chat-completions schema, which Ollama and most
-        local servers also speak — so "custom" needs no extra code.
+        Free-text coaching chat. The prompt lives in PROMPT_CHAT_COACH so that
+        presence/prompts/ can quote it verbatim; do not inline a copy here.
         """
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0 or length > 50_000:
@@ -1684,115 +1812,106 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
             return self._json(400, {"error": "invalid json"})
-
         question = str(payload.get("question") or "").strip()[:2000]
         if not question:
             return self._json(400, {"error": "empty question"})
-
-        cfg = load_llm_config()
-        if cfg and not read_llm_key(cfg):
-            # A config exists but yields no key: the single most common setup
-            # mistake. Say so in the response AND the console, because a silent
-            # fallback to the rule-based answers looks like the AI is broken.
-            msg = (
-                "llm_config.json exists but no usable key was found. "
-                "Paste your key in Settings → AI provider key, or set "
-                f"'api_key_env' to the NAME of an environment variable "
-                f"(currently: {cfg.get('api_key_env')!r})."
-            )
-            log_step(f"LLM  ← no key. api_key_env = {cfg.get('api_key_env')!r}", ok=False)
-            return self._json(503, {"error": "llm_no_key", "message": msg})
-        if not cfg:
-            # No config file. If a key was pasted in Settings, the intent is
-            # unambiguous — write the config rather than returning 503 and
-            # leaving the student to discover a JSON file was required.
-            if read_llm_key({}):
-                created = ensure_llm_config()
-                cfg = load_llm_config() if created else None
-            if not cfg:
-                return self._json(503, {
-                    "error": "llm_not_configured",
-                    "message": (
-                        "No llm_config.json and no key. Paste your key in "
-                        "Settings → AI provider key, and a config will be created."
-                    ),
-                })
-
-        system = (
-            "You are PRESENCE AI, a pacing coach for Arab school students "
-            "presenting in English. Answer in 2-4 short sentences. Only use "
-            "the numbers given to you. Never invent a measurement: if a number "
-            "is missing, say it was not measured. "
-            "If the student attaches a file, you may quote or summarise it, but "
-            "never claim to have measured it — a file is text, not a recording."
-        )
         report = payload.get("report")
         context = ""
         if isinstance(report, dict) and isinstance(report.get("tools"), dict):
             context = "Measured session data: " + json.dumps(report["tools"])[:2000]
-
-        # Attached file text, bounded so one upload cannot crowd out the
-        # question or exceed the provider's context window.
         attachment = str(payload.get("attachment") or "").strip()
         if attachment:
             attachment = attachment[:12000]
             context = (context + "\n\n" + attachment).strip()
-
-        body = {
-            "model": cfg["model"],
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": (context + "\n\nQuestion: " + question).strip()},
-            ],
-            "temperature": 0.4,
-            "max_tokens": 300,
-        }
-
-        url = cfg["base_url"].rstrip("/") + "/chat/completions"
-        headers = {"Content-Type": "application/json"}
-        # Reads llm_api_key.txt first, then the env var — so a key pasted in
-        # Settings works without restarting anything.
-        key = read_llm_key(cfg)
-        if key:
-            headers["Authorization"] = "Bearer " + key
-
-        # Everything the server does is printed here, in the same Terminal
-        # window as `python3 app.py`, so the student can watch it work.
-        model_name = cfg.get("model", "?")
-        log_step(f"LLM  → {model_name} at {cfg['base_url']}")
-        log_step(f"LLM    key {('…' + key[-4:]) if key else '(none)'}  "
-                 f"question {question[:60]!r}"
-                 + (f"  +attachment {len(attachment)} chars" if attachment else ""))
-        started = time.time()
-
+        user = (context + "\n\nQuestion: " + question).strip()
         try:
-            import urllib.request as _ur
-            req = _ur.Request(
-                url,
-                data=json.dumps(body).encode("utf-8"),
-                method="POST",
-                headers=headers,
-            )
-            with _ur.urlopen(req, timeout=cfg.get("timeout", 25)) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            elapsed = time.time() - started
-            answer = ""
-            choices = data.get("choices") or []
-            if choices:
-                answer = (choices[0].get("message") or {}).get("content", "")
-            answer = (answer or "").strip()
-            if not answer:
-                log_step("LLM  ← empty completion", ok=False)
-                return self._json(502, {"error": "empty_completion"})
-            log_step(f"LLM  ← {len(answer)} chars in {elapsed:.1f}s", ok=True)
-            return self._json(200, {
-                "answer": answer,
-                "provider": cfg.get("provider", "custom"),
-                "model": model_name,
-            })
-        except Exception as exc:  # noqa: BLE001 - report, never crash the page
-            log_step(f"LLM  ← FAILED: {str(exc)[:120]}", ok=False)
-            return self._json(502, {"error": "llm_request_failed", "message": str(exc)[:200]})
+            result = call_llm(PROMPT_CHAT_COACH, user, label="chat")
+        except LLMNotConfigured as exc:
+            log_step("LLM  ← no key. " + str(exc), ok=False)
+            code = "llm_no_key" if "no usable key" in str(exc) else "llm_not_configured"
+            return self._json(503, {"error": code, "message": str(exc)})
+        except LLMCallFailed as exc:
+            code = "empty_completion" if "empty answer" in str(exc) else "llm_request_failed"
+            return self._json(exc.status, {"error": code, "message": str(exc)})
+        return self._json(200, result)
+
+    def _handle_review(self) -> None:
+        """
+        The review written after a speech (WAI-229 R2).
+
+        The browser has already measured the session and rendered the numbers;
+        it POSTs the same report here. This handler adds NO numbers of its own,
+        keeping "code measures, the LLM coaches" true in the second place it is
+        most tempting to break. Optional by design: with no provider the report
+        still renders and says the review is unavailable.
+        """
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 50_000:
+            return self._json(400, {"error": "empty"})
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return self._json(400, {"error": "invalid json"})
+        report = payload.get("report")
+        if not isinstance(report, dict) or not isinstance(report.get("tools"), dict):
+            return self._json(400, {"error": "no_measurements"})
+        user = "Measured session data: " + json.dumps(report["tools"])[:2000]
+        note = payload.get("script_comparison")
+        if isinstance(note, dict):
+            missing = note.get("missing")
+            total = note.get("total")
+            if isinstance(missing, int) and isinstance(total, int) and total > 0:
+                user += ("\n\nScript comparison (measured against the script the "
+                         "student read): " + str(missing) + " of " + str(total)
+                         + " script words were not detected in the transcript.")
+        try:
+            result = call_llm(PROMPT_POST_SPEECH_REVIEW, user, label="review",
+                              temperature=0.5, max_tokens=260)
+        except LLMNotConfigured as exc:
+            return self._json(503, {"error": "llm_not_configured", "message": str(exc)})
+        except LLMCallFailed as exc:
+            return self._json(exc.status, {"error": "llm_request_failed", "message": str(exc)})
+        return self._json(200, result)
+
+    def _handle_script(self) -> None:
+        """
+        Turn uploaded source text into a script the student can read (R3).
+
+        Deliberately receives TEXT, not a file. The app is stdlib-only, so
+        .pptx (a ZIP of XML) and .pdf (a binary container) cannot be read here.
+        The client extracts .txt/.md and pasted text; anything else is rejected
+        in the UI with a plain explanation. That limit must not be hidden here.
+        """
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0 or length > 60_000:
+            return self._json(400, {"error": "empty"})
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return self._json(400, {"error": "invalid json"})
+        source = str(payload.get("text") or "").strip()[:12000]
+        if not source:
+            return self._json(400, {"error": "empty_source"})
+        try:
+            target_seconds = float(payload.get("target_seconds") or 120)
+        except (TypeError, ValueError):
+            target_seconds = 120.0
+        target_seconds = max(30.0, min(600.0, target_seconds))
+        minimum_words = max(60, round(target_seconds * 1.6))
+        maximum_words = round(target_seconds * 2.4)
+        system = PROMPT_SCRIPT_FROM_FILE.format(
+            minimum_words=minimum_words, maximum_words=maximum_words)
+        user = "PRESENTATION TEXT:\n" + source
+        try:
+            result = call_llm(system, user, label="script",
+                              temperature=0.6, max_tokens=1200)
+        except LLMNotConfigured as exc:
+            return self._json(503, {"error": "llm_not_configured", "message": str(exc)})
+        except LLMCallFailed as exc:
+            return self._json(exc.status, {"error": "llm_request_failed", "message": str(exc)})
+        result["words"] = len(result["answer"].split())
+        result["requested_words"] = [minimum_words, maximum_words]
+        return self._json(200, result)
 
     def _handle_chat(self) -> None:
         """
