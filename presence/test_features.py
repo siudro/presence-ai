@@ -2092,5 +2092,125 @@ class TestUpdateAdoptsZipFolder(unittest.TestCase):
         self.assertIn('"--branch", "main"', src)
 
 
+class TestPromptArchive(unittest.TestCase):
+    """WAI-229 R9: the prompts are documented, and the docs cannot rot."""
+
+    def setUp(self):
+        self.dir = os.path.join(HERE, "prompts")
+        self.assertTrue(os.path.isdir(self.dir), "presence/prompts/ must exist")
+
+    def _read(self, name):
+        path = os.path.join(self.dir, name)
+        self.assertTrue(os.path.isfile(path), "missing prompt file: " + name)
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_every_prompt_file_is_present(self):
+        for name in ("README.md", "v1-chat-coach.md",
+                     "v2-post-speech-review.md", "v3-script-from-file.md"):
+            self._read(name)
+
+    def test_each_prompt_is_saved_verbatim(self):
+        for attr, filename in (("PROMPT_CHAT_COACH", "v1-chat-coach.md"),
+                               ("PROMPT_POST_SPEECH_REVIEW", "v2-post-speech-review.md")):
+            self.assertIn(getattr(app, attr), self._read(filename),
+                          attr + " is not saved verbatim in " + filename)
+
+    def test_script_prompt_template_is_saved_verbatim(self):
+        self.assertIn(app.PROMPT_SCRIPT_FROM_FILE, self._read("v3-script-from-file.md"))
+        self.assertIn("{minimum_words}", app.PROMPT_SCRIPT_FROM_FILE)
+        self.assertIn("{maximum_words}", app.PROMPT_SCRIPT_FROM_FILE)
+
+    def test_each_prompt_file_names_its_function(self):
+        for filename, handler in (("v1-chat-coach.md", "_handle_llm"),
+                                  ("v2-post-speech-review.md", "_handle_review"),
+                                  ("v3-script-from-file.md", "_handle_script")):
+            self.assertIn(handler, self._read(filename),
+                          filename + " must name the function it serves")
+
+    def test_every_prompt_forbids_inventing_measurements(self):
+        for attr in ("PROMPT_CHAT_COACH", "PROMPT_POST_SPEECH_REVIEW"):
+            self.assertIn("Never invent a measurement", getattr(app, attr))
+
+
+class TestPostSpeechReview(unittest.TestCase):
+    """WAI-229 R2: the LLM reviews the measured stats after a speech."""
+
+    def test_prompt_takes_measurements(self):
+        self.assertIn("Use ONLY the measured numbers given to you",
+                      app.PROMPT_POST_SPEECH_REVIEW)
+        self.assertIn("one concrete thing to change", app.PROMPT_POST_SPEECH_REVIEW)
+
+    def test_prompt_handles_null_measurements(self):
+        self.assertIn("do not mention it", app.PROMPT_POST_SPEECH_REVIEW)
+
+    def test_review_route_forwards_measured_input(self):
+        src = open(app.__file__, encoding="utf-8").read()
+        at = src.index("def _handle_review")
+        body = src[at:at + 6000]
+        self.assertIn('json.dumps(report["tools"])', body)
+        self.assertIn('payload.get("script_comparison")', body)
+
+    def test_script_comparison_is_only_a_count(self):
+        src = open(app.__file__, encoding="utf-8").read()
+        at = src.index("def _handle_review")
+        body = src[at:at + 6000]
+        self.assertIn("script words were not", body)
+        self.assertIn("detected in the transcript", body)
+        self.assertIn("isinstance(missing, int)", body)
+
+    def test_review_route_is_registered(self):
+        self.assertIn('if path == "/api/review"', open(app.__file__, encoding="utf-8").read())
+
+    def test_review_requires_measurements(self):
+        src = open(app.__file__, encoding="utf-8").read()
+        at = src.index("def _handle_review")
+        self.assertIn('"no_measurements"', src[at:at + 6000])
+
+
+class TestScriptFromFile(unittest.TestCase):
+    """WAI-229 R3/R4: an uploaded text becomes a script, honestly limited."""
+
+    def test_prompt_forbids_adding_facts(self):
+        self.assertIn("do not add facts that are not in it", app.PROMPT_SCRIPT_FROM_FILE)
+
+    def test_prompt_forbids_unspeakable_formatting(self):
+        for phrase in ("no bullet points", "no headings", "no markdown"):
+            self.assertIn(phrase, app.PROMPT_SCRIPT_FROM_FILE)
+
+    def test_prompt_length_is_filled_per_request(self):
+        filled = app.PROMPT_SCRIPT_FROM_FILE.format(minimum_words=192, maximum_words=288)
+        self.assertIn("192", filled)
+        self.assertIn("288", filled)
+        self.assertNotIn("{minimum_words}", filled)
+
+    def test_script_route_is_registered(self):
+        self.assertIn('if path == "/api/script"', open(app.__file__, encoding="utf-8").read())
+
+    def test_pptx_and_pdf_are_not_claimed(self):
+        self.assertIn("cannot read PowerPoint", self.js)
+        self.assertNotIn("python-pptx", open(app.__file__, encoding="utf-8").read())
+
+
+class TestStartScreenChoice(unittest.TestCase):
+    """WAI-229 R5/R10: from the first screen, improvise or prepare a script."""
+
+    def test_both_paths_are_on_the_home_screen(self):
+        for ident in ("modeImprovise", "modeScript"):
+            self.assertIn('id="' + ident + '"', self.html)
+
+    def test_script_path_leads_to_the_reading_view(self):
+        self.assertIn("scriptView", self.html)
+        self.assertIn("renderTeleprompter", self.js)
+
+    def test_teleprompter_is_animated_not_static(self):
+        self.assertIn("teleprompter", self.html)
+        self.assertIn("is-current", self.css)
+
+    def test_skipped_words_can_be_highlighted(self):
+        self.assertIn("function alignScript", self.js)
+        self.assertIn("mark.skipped", self.css)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
