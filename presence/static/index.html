@@ -40,11 +40,37 @@
     <!-- Practice passage. Optional: the student can paste the text they will
          read, so the transcript can be compared against what was intended.
          Empty means free speech, which is the default. -->
-    <details class="passage">
-      <summary>Practise a specific passage <span class="dim">(optional)</span></summary>
-      <p class="cardnote">Paste what you plan to say. It appears above the transcript while you speak, so you can glance at it.</p>
-      <textarea id="passageInput" rows="3" placeholder="Paste your speech or paragraph here…"></textarea>
-    </details>
+    <div class="mode" role="radiogroup" aria-label="How do you want to practise?">
+      <button class="modecard active" id="modeImprovise" role="radio" aria-checked="true" data-mode="improvise" type="button">
+        <strong>Improvise</strong>
+        <span>Speak freely. The coach measures pace, fillers and pauses.</span>
+      </button>
+      <button class="modecard" id="modeScript" role="radio" aria-checked="false" data-mode="script" type="button">
+        <strong>Prepare a script</strong>
+        <span>Bring your notes. We write the words you will read.</span>
+      </button>
+    </div>
+    <div class="scriptprep" id="scriptPrep" hidden>
+      <p class="cardnote">Upload your notes or paste them. We turn them into a script you can read from.</p>
+      <div class="scriptprep-row">
+        <label class="ghostbtn filepick" for="scriptFile">Choose a file</label>
+        <input id="scriptFile" type="file" accept=".txt,.md,text/plain,text/markdown" hidden>
+        <button class="ghostbtn" id="scriptPasteBtn" type="button">Or paste notes</button>
+      </div>
+      <p class="scriptlimit" id="scriptLimit">
+        We can read <strong>.txt</strong> and <strong>.md</strong>. A presentation
+        file (PowerPoint, PDF, Word) needs a text export first — this app has no
+        document parser, and will not pretend otherwise.
+      </p>
+      <textarea id="scriptSource" rows="4" placeholder="Paste your presentation notes here…" hidden></textarea>
+      <div class="scriptprep-row">
+        <button class="record" id="scriptMakeBtn" type="button" disabled>
+          Turn these notes into a script
+        </button>
+      </div>
+      <p class="cardnote" id="scriptStatus"></p>
+      <p class="scriptlimit" id="scriptError" hidden></p>
+    </div>
 
     <!-- Microphone check before recording.
          The live meter only existed on the speaking screen, so a student
@@ -126,7 +152,16 @@
     </svg>
     <p class="sr-only" id="paceStatus" aria-live="polite">Waiting for speech</p>
 
-    <div class="passageview" id="passageView" hidden></div>
+    <div class="scriptview" id="scriptView" hidden aria-live="off">
+      <div class="scriptview-head">
+        <span class="phead">Your script</span>
+        <button class="ghostbtn tiny" id="scriptViewToggle" type="button" aria-expanded="true">Hide</button>
+      </div>
+      <div class="teleprompter" id="teleprompterBox">
+        <div class="teleprompter-text" id="teleprompterText"></div>
+      </div>
+      <p class="scriptview-note" id="scriptViewNote" hidden></p>
+    </div>
 
     <div class="stops">
       <button class="stop" id="pauseBtn" aria-label="Pause session">
@@ -167,6 +202,14 @@
       <div class="rcell"><b id="finalSteady">—</b><span>VOICE STEADINESS</span></div>
     </div>
     <p class="rnote" id="reportWpm">—</p>
+
+    <div class="card reviewcard">
+      <div class="cardhead">YOUR COACH'S REVIEW</div>
+      <div class="reviewbody" id="reviewBody">
+        <p class="reviewpending" id="reviewPending">Reading your numbers…</p>
+      </div>
+      <p class="cardnote" id="reviewSource"></p>
+    </div>
 
     <div class="card">
       <div class="cardhead">WHAT YOU SAID</div>
