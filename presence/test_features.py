@@ -2186,9 +2186,11 @@ class TestScriptFromFile(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        for name in ("index.html", "app.js", "app.css"):
+        # app.js and app.css share a stem: map names explicitly, or the CSS
+        # silently overwrites the JS on cls.app.
+        for attr, name in (("html", "index.html"), ("js", "app.js"), ("css", "app.css")):
             with open(os.path.join(HERE, "static", name), encoding="utf-8") as fh:
-                setattr(cls, name.split(".")[0], fh.read())
+                setattr(cls, attr, fh.read())
 
     def test_prompt_forbids_adding_facts(self):
         self.assertIn("do not add facts that are not in it", app.PROMPT_SCRIPT_FROM_FILE)
@@ -2216,9 +2218,11 @@ class TestStartScreenChoice(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        for name in ("index.html", "app.js", "app.css"):
+        # app.js and app.css share a stem: map names explicitly, or the CSS
+        # silently overwrites the JS on cls.app.
+        for attr, name in (("html", "index.html"), ("js", "app.js"), ("css", "app.css")):
             with open(os.path.join(HERE, "static", name), encoding="utf-8") as fh:
-                setattr(cls, name.split(".")[0], fh.read())
+                setattr(cls, attr, fh.read())
 
     def test_both_paths_are_on_the_home_screen(self):
         for ident in ("modeImprovise", "modeScript"):
