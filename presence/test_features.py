@@ -1519,7 +1519,11 @@ class TestServerConsole(unittest.TestCase):
         src = open(app.__file__, encoding="utf-8").read()
         self.assertIn("def run_startup_checks", src)
         start = src.index("def run_startup_checks")
-        block = src[start:start + 2500]
+        # Bound the block by the NEXT top-level def, not by a character count.
+        # A fixed window silently broke the moment the function grew, which
+        # punished a correct edit to the code it was meant to protect.
+        end = src.find("\ndef ", start + 10)
+        block = src[start:end if end != -1 else len(src)]
         self.assertIn("SUPPRESS_ACCESS_LOG = True", block)
         self.assertIn("SUPPRESS_ACCESS_LOG = False", block, "must restore afterwards")
         # And the handler must honour it.
