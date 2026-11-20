@@ -2567,6 +2567,16 @@ async function refreshKeyStatus() {
 
     // Show the AI key state beside the Cohere one. Their absence of a status
     // line made a saved AI key look like the Cohere key had been lost.
+    // Show which build is running. Without this, "am I on the old copy?" is
+    // unanswerable from the page, and a stale folder looks identical to a
+    // broken fix.
+    const buildEl = $("buildInfo");
+    if (buildEl) {
+      buildEl.textContent = data && data.build
+        ? "version " + data.build
+        : "version unknown (old copy)";
+    }
+
     const llmEl = $("llmKeyStatus");
     if (llmEl) {
       const ai = data && data.llm;
