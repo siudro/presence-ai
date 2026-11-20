@@ -2511,6 +2511,37 @@ function initSettings() {
         }
       }
 
+      // Send the AI-chat key. This block did not exist: the field was read for
+      // its Show/Hide toggle and never on Save, so a pasted AI key was thrown
+      // away and the chat stayed rule based however many times it was tried.
+      const llmField = $("llmKey");
+      const llmStatusEl = $("llmKeyStatus");
+      const pastedLlm = (llmField && llmField.value ? llmField.value : "").trim();
+      if (pastedLlm) {
+        try {
+          const res = await fetch("/api/key", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ kind: "llm", key: pastedLlm }),
+          });
+          const data = await res.json();
+          if (res.ok && data.configured) {
+            if (llmField) llmField.value = "";
+            if (llmStatusEl) {
+              llmStatusEl.textContent =
+                "Saved " + (data.hint || "") + " — model " + (data.model || "default") +
+                (data.config_exists ? "." : " (config created on next start).");
+            }
+            toast("AI key saved");
+          } else {
+            if (llmStatusEl) llmStatusEl.textContent = data.message || "That key was not accepted.";
+            toast("AI key not accepted");
+          }
+        } catch (err) {
+          if (llmStatusEl) llmStatusEl.textContent = "Could not reach the server.";
+        }
+      }
+
       closeSidebar();
     });
   }
@@ -2533,6 +2564,16 @@ async function refreshKeyStatus() {
     const res = await fetch("/api/key");
     const data = await res.json();
     const home = $("homeKeyState");
+
+    // Show the AI key state beside the Cohere one. Their absence of a status
+    // line made a saved AI key look like the Cohere key had been lost.
+    const llmEl = $("llmKeyStatus");
+    if (llmEl) {
+      const ai = data && data.llm;
+      llmEl.textContent = ai && ai.configured
+        ? "Loaded " + (ai.hint || "") + " — model " + (ai.model || "default") + "."
+        : "Not set yet — paste your OpenAI key above, then Save.";
+    }
 
     /*
      * If the running server does not advertise persistence, the browser is

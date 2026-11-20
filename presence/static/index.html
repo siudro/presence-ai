@@ -487,19 +487,19 @@
     </div>
 
     <div class="side-section">
-      <h3>2. AI chat key — optional</h3>
-      <p class="note">A <strong>different</strong> provider (OpenCode, OpenAI, Ollama) for the coach chat. Empty is fine: chat answers from your own numbers instead.</p>
+      <h3>2. OpenAI key — for the AI coach</h3>
+      <p class="note">From <strong>platform.openai.com/api-keys</strong>. This turns the chat into a real LLM. Without it the chat answers from your own measurements instead.</p>
       <div class="field">
-        <label for="llmKey">AI provider key</label>
+        <label for="llmKey">OpenAI API key</label>
         <div class="keywrap">
-          <input id="llmKey" type="password" autocomplete="off" placeholder="Optional">
+          <input id="llmKey" type="password" autocomplete="off" placeholder="sk-...">
           <button type="button" id="toggleLlmKey" aria-label="Show or hide AI key">Show</button>
         </div>
       </div>
+      <p class="note" id="llmKeyStatus">Not set yet.</p>
       <div class="field">
-        <label for="apiEndpoint">AI chat endpoint <span class="hint small">(usually leave this as-is)</span></label>
-        <input id="apiEndpoint" type="url" placeholder="https://opencode.ai/inference/openai/v1">
-        <p class="note" style="margin-top:6px">Where your AI key is sent. The value already shown is OpenCode's address. Change it only if you use a different provider — OpenAI uses https://api.openai.com/v1</p>
+        <label for="apiEndpoint">Other endpoint <span class="hint small">(leave empty for OpenAI)</span></label>
+        <input id="apiEndpoint" type="url" placeholder="Leave empty">
       </div>
     </div>
 

@@ -764,8 +764,12 @@ class TestLiveFeatures(unittest.TestCase):
         self.assertIn("disabled = true", block)
 
     def test_endpoint_field_is_explained(self):
-        """She asked what it was; the label must answer that in place."""
-        self.assertIn("usually leave this as-is", self.html)
+        """
+        She asked what it was. The OpenAI section now states the endpoint is
+        only needed for non-OpenAI providers, which is clearer than the old
+        'usually leave this as-is' hint.
+        """
+        self.assertIn("leave empty for openai", self.html.lower())
 
     def test_rule_based_coach_exists(self):
         self.assertIn("const COACH_RULES", self.js)
@@ -1556,6 +1560,49 @@ class TestServerConsole(unittest.TestCase):
         calls = re.findall(r"^\s+os\.remove\(dst\)\s*$", src, re.M)
         self.assertEqual(calls, [], "a test must not delete the real llm_config.json")
         self.assertIn("tempfile.TemporaryDirectory", src)
+
+
+class TestAiKeyFromSettings(unittest.TestCase):
+    """
+    THE root cause of the chat staying rule-based: the AI key field existed in
+    the UI but was never sent to the server on Save. Only the Cohere key was.
+    """
+
+    def test_save_sends_the_ai_key(self):
+        src = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
+        start = src.index("const saveBtn")
+        end = src.index("function refreshKeyStatus", start)
+        body = src[start:end]
+        self.assertIn('"llmKey"', body)
+        self.assertIn('kind: "llm"', body)
+
+    def test_server_accepts_an_ai_key(self):
+        src = open(app.__file__, encoding="utf-8").read()
+        start = src.index("def _handle_set_key")
+        body = src[start:start + 3000]
+        self.assertIn('kind', body)
+        self.assertIn("save_llm_key", body)
+
+    def test_ai_status_is_reported(self):
+        status = app.llm_status()
+        self.assertIn("configured", status)
+        self.assertIn("model", status)
+        # Never the key itself.
+        self.assertNotIn("key", status)
+
+    def test_opencode_is_fully_removed(self):
+        """The student asked for OpenAI-only configuration."""
+        for path in ("static/app.js", "static/index.html",
+                     "RUN-ON-YOUR-MACHINE.txt", "llm_config.openai.json"):
+            full = os.path.join(HERE, path)
+            if not os.path.isfile(full):
+                continue
+            text = open(full, encoding="utf-8").read().lower()
+            self.assertNotIn("opencode", text, f"opencode still mentioned in {path}")
+        self.assertFalse(
+            os.path.exists(os.path.join(HERE, "llm_config.opencode.json")),
+            "llm_config.opencode.json should be gone",
+        )
 
 
 class TestJustPasteTheKey(unittest.TestCase):

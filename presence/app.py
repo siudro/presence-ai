@@ -1128,6 +1128,19 @@ def clear_runtime_key() -> None:
         pass
 
 
+def llm_status() -> dict:
+    """What the page may know about the AI-chat key. Never the key itself."""
+    key = read_llm_key(load_llm_config() or {})
+    cfg = load_llm_config()
+    return {
+        "configured": bool(key),
+        "hint": ("\u2026" + key[-4:]) if len(key) >= 8 else "",
+        "model": (cfg or {}).get("model", ""),
+        "provider": (cfg or {}).get("provider", ""),
+        "config_exists": (HERE / "llm_config.json").is_file(),
+    }
+
+
 def key_status() -> dict:
     """
     What the page is allowed to know. Never returns the key itself.
@@ -1203,6 +1216,9 @@ def strip_quotes(value: str) -> str:
 
 
 
+_LLM_CONFIG_NOTED = {"done": False}
+
+
 def ensure_llm_config() -> bool:
     """
     Create llm_config.json when a key exists but the config does not.
@@ -1241,7 +1257,9 @@ def ensure_llm_config() -> bool:
         (HERE / "llm_config.json").write_text(
             json.dumps(cfg, indent=2) + "\n", encoding="utf-8"
         )
-        log_step("Created llm_config.json from your pasted key", ok=True)
+        if not _LLM_CONFIG_NOTED["done"]:
+            _LLM_CONFIG_NOTED["done"] = True
+            log_step("Created llm_config.json from your pasted key", ok=True)
         return True
     except OSError:
         return False
@@ -1553,7 +1571,9 @@ class Handler(BaseHTTPRequestHandler):
                 "persists_key": True,
             })
         if path == "/api/key":
-            return self._json(200, key_status())
+            status = key_status()
+            status["llm"] = llm_status()
+            return self._json(200, status)
         if path == "/api/history":
             return self._json(200, {"sessions": load_sessions()})
         if path == "/api/achievements":
@@ -1839,6 +1859,34 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
             return self._json(400, {"error": "invalid json"})
+
+        # The AI-chat key. The page sends it to the same endpoint with
+        # kind="llm". It was never sent at all before, so a pasted AI key went
+        # nowhere and the chat stayed rule based no matter how often it was tried.
+        if str(payload.get("kind") or "") == "llm":
+            raw_llm = str(payload.get("key") or "").strip()
+            if not raw_llm:
+                try:
+                    LLM_KEY_FILE.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                return self._json(200, llm_status())
+            cleaned_llm = normalise_key(raw_llm)
+            if len(cleaned_llm) < 8:
+                return self._json(400, {
+                    "error": "bad_key",
+                    "message": "That does not look like a key. Paste the whole key.",
+                })
+            saved = save_llm_key(cleaned_llm)
+            created = ensure_llm_config()
+            status = llm_status()
+            status["saved_to_disk"] = saved
+            status["config_created"] = created
+            if not saved:
+                status["message"] = (
+                    "Key works for now, but could not be written to llm_api_key.txt."
+                )
+            return self._json(200, status)
 
         raw = str(payload.get("key") or "")
         if not raw.strip():

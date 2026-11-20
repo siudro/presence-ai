@@ -88,8 +88,6 @@ STEP D. Start the server in that same window
       "model": "llama3",
       "api_key_env": "NONE"
 
-* OpenCode Zen: see llm_config.opencode.json. Its free models generally
-  require the OpenCode app itself, so they may be refused from a website.
 
 --- How to tell it worked ---
 
