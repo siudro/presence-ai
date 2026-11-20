@@ -1649,7 +1649,8 @@ def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
         import urllib.request as _ur
         req = _ur.Request(url, data=json.dumps(body).encode("utf-8"),
                           method="POST", headers=headers)
-        with _ur.urlopen(req, timeout=timeout or cfg.get("timeout", 25)) as resp:
+        from tls import urlopen as _urlopen
+        with _urlopen(req, timeout=timeout or cfg.get("timeout", 25)) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         elapsed = time.time() - started
         answer = ""

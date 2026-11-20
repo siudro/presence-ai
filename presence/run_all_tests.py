@@ -101,7 +101,7 @@ def main() -> int:
     total_ok = total_bad = total_skip = 0
     started = time.time()
 
-    for module in ("test_app", "test_features"):
+    for module in ("test_app", "test_features", "test_tls"):
         print(f"{BOLD}── {module}.py ──{RESET}")
         result, _ = run_module(module, verbose)
         for group, counts in result.groups.items():

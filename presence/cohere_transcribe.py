@@ -136,7 +136,8 @@ def transcribe(audio_path: str, language: str, timeout: int = 60) -> str:
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        from tls import urlopen as _tls_urlopen
+        with _tls_urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         # Surface the status, never the key.

@@ -101,7 +101,8 @@ def check_cohere() -> None:
         headers={"Authorization": "Bearer " + key},
     )
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
+        from tls import urlopen as _tls_urlopen
+        with _tls_urlopen(req, timeout=20) as resp:
             data = json.loads(resp.read().decode())
         models = [m.get("name", "") for m in data.get("models", [])]
         arabic = any("arabic" in m for m in models)
@@ -142,7 +143,8 @@ def check_gemini() -> None:
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + key},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        from tls import urlopen as _tls_urlopen
+        with _tls_urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode())
         text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
         record("Gemini answers a real question", True,
