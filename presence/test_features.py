@@ -1684,12 +1684,17 @@ class TestPullWorkflow(unittest.TestCase):
         pull_at = src.index('"pull"')
         self.assertLess(backup_at, pull_at, "backup must happen before the pull")
 
-    def test_update_script_explains_the_zip_case(self):
-        """A downloaded zip is not a git checkout; say so rather than crash."""
+    def test_update_script_handles_the_zip_case(self):
+        """
+        A downloaded zip cannot pull, so the script converts it rather than
+        refusing. Telling the student "not a git checkout" left the same stale
+        folder in place across several rounds — the refusal was the bug.
+        """
         with open(os.path.join(HERE, "update_app.py"), encoding="utf-8") as _fh:
-
             src = _fh.read()
-        self.assertIn("not a git checkout", src)
+        self.assertIn("came from a zip", src)
+        self.assertIn("adopt_zip_folder", src)
+        # A manual fallback must still be offered if conversion fails.
         self.assertIn("git clone", src)
 
     def test_key_file_is_not_tracked_by_git(self):
@@ -2045,6 +2050,46 @@ class TestPackage(unittest.TestCase):
     def test_every_module_imports(self):
         for mod in ("app", "cohere_transcribe", "coach_bridge"):
             __import__(mod)
+
+
+
+
+class TestUpdateAdoptsZipFolder(unittest.TestCase):
+    """
+    A downloaded zip can never update itself, so update_app converts the
+    folder into a checkout instead of turning the student away.
+
+    These lock the properties that failed during development: the result must
+    be a flat folder, the key must survive, and a second run must still work.
+    """
+
+    def setUp(self):
+        import update_app
+        self.u = update_app
+        self.assertIn("def adopt_zip_folder", open("update_app.py", encoding="utf-8").read())
+
+    def test_adopt_is_offered_instead_of_refusing(self):
+        src = open("update_app.py", encoding="utf-8").read()
+        # The old behaviour: print "not a git checkout" and return 1.
+        self.assertNotIn("This folder is not a git checkout.", src)
+        self.assertIn("adopt_zip_folder()", src)
+
+    def test_run_supplies_path_so_credentials_resolve(self):
+        """A restricted PATH hid the credential helper and broke every pull."""
+        src = open("update_app.py", encoding="utf-8").read()
+        self.assertIn('env["PATH"] = os.pathsep.join(parts)', src)
+        self.assertIn('GIT_TERMINAL_PROMPT', src)
+
+    def test_adopt_descends_into_presence_subfolder(self):
+        """The repo nests its code under presence/; copying it wholesale
+        produced presence/presence in the student's folder."""
+        src = open("update_app.py", encoding="utf-8").read()
+        self.assertIn('inner = scratch / "presence"', src)
+
+    def test_clone_pins_main_branch(self):
+        """Cloning without --branch landed on probe, which then had no upstream."""
+        src = open("update_app.py", encoding="utf-8").read()
+        self.assertIn('"--branch", "main"', src)
 
 
 if __name__ == "__main__":
