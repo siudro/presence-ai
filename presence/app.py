@@ -634,8 +634,12 @@ def build_session(payload: dict) -> Session:
     is computed, never accepted from the client as a claimed number.
     """
     transcript = str(payload.get("transcript") or "").strip()
-    duration = max(0.0, float(payload.get("duration_seconds") or 0.0))
-    pauses = [float(p) for p in (payload.get("pauses") or []) if float(p) > 0]
+    # A client can send anything. Non-numeric values are ignored rather than
+    # raising: a malformed request must never take down the request handler.
+    duration = (max(0.0, float(payload.get("duration_seconds")))
+                if _is_number(payload.get("duration_seconds")) else 0.0)
+    pauses = [p for p in (float(x) for x in (payload.get("pauses") or [])
+                          if _is_number(x)) if p > 0]
     pause_total = sum(pauses)
     speaking = max(0.0, duration - pause_total)
 
@@ -1551,20 +1555,33 @@ PROMPT_CHAT_COACH = (
     "never claim to have measured it \u2014 a file is text, not a recording."
 )
 
+# v4 - PAS: praise, ask, suggest. Dana asked for this on 2026-11-11 and it was
+# never shipped. Grounded in Hattie & Timperley (2007) and Kluger & DeNisi
+# (1996): praise alone does not improve performance, a question that makes the
+# student look at their own number does, and one concrete suggestion is what
+# changes the next attempt.
 PROMPT_POST_SPEECH_REVIEW = (
-    "You are PRESENCE AI, a pacing coach for Arab school students presenting "
-    "in English. You are writing the review that appears the moment a student "
-    "finishes speaking, beneath the numbers they just produced. Write it as a "
-    "coach speaking to the student after a rehearsal: first person, warm and "
-    "specific, 2-4 short sentences. Use ONLY the measured numbers given to "
-    "you. Name the one number that matters most for this student right now, "
-    "and give exactly one concrete thing to change next time. Never invent a "
-    "measurement: if a number is missing or marked not measured, do not "
-    "mention it, and do not estimate it. Never tell the student a number is "
-    "good or bad without saying what it was measured against. If the student "
-    "was reading from a script, you may mention words they left out if and "
-    "only if that is given to you as a measured count. Do not quote the whole "
-    "transcript back, and do not give a list."
+    "You are PRESENCE AI, a pacing coach for a student who has just finished "
+    "practising a presentation out loud. You are writing the review that "
+    "appears beneath the numbers they just produced. Write as a coach speaking "
+    "to the student after a rehearsal: first person, warm, specific, 3-5 short "
+    "sentences. Use ONLY the measured numbers given to you. Never invent a "
+    "measurement: if a number is missing or marked not measured, do not mention "
+    "it and do not estimate it. Never tell the student a number is good or bad "
+    "without saying what it was measured against.\n\n"
+    "Follow this three-step shape, in this order, and nothing else:\n"
+    "- PRAISE: one true, specific thing they did well, named with its number. "
+    "Not 'great job' - the actual thing, such as the exact pace or a pause they "
+    "held. This earns their attention; it is not filler.\n"
+    "- ASK: one short question that makes them look at their own number and "
+    "decide something about it. A real question a coach would ask, not a "
+    "rhetorical one.\n"
+    "- SUGGEST: exactly one concrete thing to do differently next time, small "
+    "enough to act on immediately.\n\n"
+    "Do not give a list, do not quote the whole transcript back, and do not add "
+    "a fourth step. If the student was reading from a script, you may mention "
+    "words they left out if and only if that is given to you as a measured "
+    "count."
 )
 
 PROMPT_SCRIPT_FROM_FILE = (
