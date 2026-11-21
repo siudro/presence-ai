@@ -2124,12 +2124,13 @@ class TestPromptArchive(unittest.TestCase):
 
     def test_every_prompt_file_is_present(self):
         for name in ("README.md", "v1-advisor.md",
-                     "v2-post-speech-review.md", "v3-script-from-file.md"):
+                     "v2-post-speech-review.md", "v3-script-from-file.md",
+                     "v4-pas-review.md"):
             self._read(name)
 
     def test_each_prompt_is_saved_verbatim(self):
         for attr, filename in (("PROMPT_CHAT_COACH", "v1-advisor.md"),
-                               ("PROMPT_POST_SPEECH_REVIEW", "v2-post-speech-review.md")):
+                               ("PROMPT_POST_SPEECH_REVIEW", "v4-pas-review.md")):
             self.assertIn(getattr(app, attr), self._read(filename),
                           attr + " is not saved verbatim in " + filename)
 
@@ -2140,7 +2141,7 @@ class TestPromptArchive(unittest.TestCase):
 
     def test_each_prompt_file_names_its_function(self):
         for filename, handler in (("v1-advisor.md", "_handle_llm"),
-                                  ("v2-post-speech-review.md", "_handle_review"),
+                                  ("v4-pas-review.md", "_handle_review"),
                                   ("v3-script-from-file.md", "_handle_script")):
             self.assertIn(handler, self._read(filename),
                           filename + " must name the function it serves")
@@ -2150,13 +2151,70 @@ class TestPromptArchive(unittest.TestCase):
             self.assertIn("Never invent a measurement", getattr(app, attr))
 
 
+class TestBuildSessionRejectsJunk(unittest.TestCase):
+    """Found by stress-testing the live app on 2026-11-21: a string in `pauses`
+    raised ValueError inside the request handler, so the client got no response
+    at all. A malformed request must be ignored, never fatal."""
+
+    def test_string_duration_does_not_raise(self):
+        s = app.build_session({"transcript": "a b c", "duration_seconds": "abc"})
+        self.assertEqual(s.duration_seconds, 0.0)
+        self.assertEqual(s.wpm, 0.0)
+
+    def test_string_in_pauses_does_not_raise(self):
+        s = app.build_session({"transcript": "a b c",
+                               "duration_seconds": 60, "pauses": ["x", 3, None]})
+        self.assertEqual(s.pauses, [3.0])
+
+    def test_valid_input_is_unchanged(self):
+        s = app.build_session({"transcript": "a b c", "duration_seconds": 60,
+                               "pauses": [5, 10]})
+        self.assertEqual(s.duration_seconds, 60.0)
+        self.assertEqual(s.pauses, [5.0, 10.0])
+
+    def test_nan_and_inf_are_rejected(self):
+        s = app.build_session({"transcript": "a b c",
+                               "duration_seconds": float("nan"),
+                               "pauses": [float("inf")]})
+        self.assertEqual(s.duration_seconds, 0.0)
+        self.assertEqual(s.pauses, [])
+
+
+class TestPasReviewShape(unittest.TestCase):
+    """Dana asked for PAS (praise, ask, suggest) on 2026-11-11. It was never
+    shipped. This class exists so it cannot silently disappear again."""
+
+    def test_prompt_has_all_three_steps_in_order(self):
+        prompt = app.PROMPT_POST_SPEECH_REVIEW
+        for step in ("PRAISE:", "ASK:", "SUGGEST:"):
+            self.assertIn(step, prompt)
+        positions = [prompt.index(s) for s in ("PRAISE:", "ASK:", "SUGGEST:")]
+        self.assertEqual(positions, sorted(positions),
+                         "PAS steps must appear in the order praise, ask, suggest")
+
+    def test_prompt_forbids_a_fourth_step(self):
+        self.assertIn("do not add", app.PROMPT_POST_SPEECH_REVIEW.lower())
+
+    def test_praise_must_carry_a_number(self):
+        self.assertIn("named with its number", app.PROMPT_POST_SPEECH_REVIEW)
+
+    def test_prompt_does_not_narrow_to_one_language(self):
+        self.assertNotIn("Arab school students", app.PROMPT_POST_SPEECH_REVIEW)
+
+    def test_pas_is_documented_verbatim(self):
+        path = os.path.join(HERE, "prompts", "v4-pas-review.md")
+        with open(path, encoding="utf-8") as fh:
+            self.assertIn(app.PROMPT_POST_SPEECH_REVIEW, fh.read())
+
+
 class TestPostSpeechReview(unittest.TestCase):
     """WAI-229 R2: the LLM reviews the measured stats after a speech."""
 
     def test_prompt_takes_measurements(self):
         self.assertIn("Use ONLY the measured numbers given to you",
                       app.PROMPT_POST_SPEECH_REVIEW)
-        self.assertIn("one concrete thing to change", app.PROMPT_POST_SPEECH_REVIEW)
+        self.assertIn("exactly one concrete thing to do differently",
+                      app.PROMPT_POST_SPEECH_REVIEW)
 
     def test_prompt_handles_null_measurements(self):
         self.assertIn("do not mention it", app.PROMPT_POST_SPEECH_REVIEW)
