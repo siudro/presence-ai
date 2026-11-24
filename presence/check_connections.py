@@ -135,7 +135,10 @@ def check_gemini() -> None:
     body = json.dumps({
         "model": "gemini-4-hydrogen",
         "messages": [{"role": "user", "content": "Reply with the single word: connected"}],
-        "max_tokens": 12,
+        # Thinking tokens count against max_tokens on Gemini: a budget of 12
+        # was always spent thinking and came back empty.
+        "max_tokens": 2048 + 12,
+        "reasoning_effort": "low",
     }).encode()
     req = urllib.request.Request(
         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
@@ -146,9 +149,15 @@ def check_gemini() -> None:
         from tls import urlopen as _tls_urlopen
         with _tls_urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode())
-        text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
-        record("Gemini answers a real question", True,
-               f"reply: {text.strip()[:60]!r}")
+        choice = (data.get("choices") or [{}])[0]
+        text = (choice.get("message") or {}).get("content") or ""
+        if text.strip():
+            record("Gemini answers a real question", True,
+                   f"reply: {text.strip()[:60]!r}")
+        else:
+            record("Gemini answers a real question", False,
+                   "the key works but the reply was EMPTY (finish_reason="
+                   f"{choice.get('finish_reason')!r}) - the model spent its token budget thinking")
     except urllib.error.HTTPError as exc:
         body_text = exc.read()[:220].decode(errors="replace")
         record("Gemini answers a real question", False, f"HTTP {exc.code}: {body_text}")

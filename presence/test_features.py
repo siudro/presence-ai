@@ -2343,5 +2343,123 @@ class TestPromptsAreDocumented(unittest.TestCase):
                          "the saved v1 prompt has drifted from app.py")
 
 
+class TestLlmProviderResponses(unittest.TestCase):
+    """
+    call_llm against a local stand-in for Gemini's OpenAI-compatible endpoint.
+
+    Regression tests for the "AI through the API does not work" report:
+      1. thinking tokens ate the whole max_tokens budget -> empty answers
+      2. HTTP errors reached the page as "HTTP Error 400: Bad Request" only
+      3. an OpenAI key saved in Settings beat an exported GEMINI_API_KEY
+    """
+
+    GOOD = "AIza-good-key-000000000000000000000000"
+
+    @classmethod
+    def setUpClass(cls):
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        test = cls
+        test.seen = []
+
+        class Mock(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                key = self.headers.get("Authorization", "").replace("Bearer ", "")
+                test.seen.append({"body": body, "key": key})
+                if key != test.GOOD:
+                    code, out = 400, [{"error": {"code": 400, "status": "INVALID_ARGUMENT",
+                                       "message": "API key not valid. Please pass a valid API key."}}]
+                else:
+                    thinking = {"none": 0, "minimal": 60, "low": 120, "high": 2000}.get(
+                        body.get("reasoning_effort"), 700)
+                    empty = thinking >= body["max_tokens"]
+                    code, out = 200, {"choices": [{"finish_reason": "length" if empty else "stop",
+                                      "message": {"role": "assistant",
+                                                  "content": "" if empty else "Slow down a little."}}]}
+                raw = json.dumps(out).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+        cls.server = ThreadingHTTPServer(("127.0.0.1", 0), Mock)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.base = "http://127.0.0.1:%d" % cls.server.server_address[1]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def setUp(self):
+        import pathlib
+        import tempfile
+        self.tmp = tempfile.TemporaryDirectory()
+        self.saved = (app.HERE, app.LLM_KEY_FILE, os.environ.get("GEMINI_API_KEY"))
+        app.HERE = pathlib.Path(self.tmp.name)
+        app.LLM_KEY_FILE = app.HERE / "llm_api_key.txt"
+        cfg = json.load(open(os.path.join(HERE, "llm_config.gemini.json"), encoding="utf-8"))
+        cfg["base_url"] = self.base
+        (app.HERE / "llm_config.json").write_text(json.dumps(cfg), encoding="utf-8")
+        os.environ["GEMINI_API_KEY"] = self.GOOD
+        self.seen.clear()
+
+    def tearDown(self):
+        app.HERE, app.LLM_KEY_FILE, env = self.saved
+        if env is None:
+            os.environ.pop("GEMINI_API_KEY", None)
+        else:
+            os.environ["GEMINI_API_KEY"] = env
+        self.tmp.cleanup()
+
+    def test_short_answers_leave_room_for_thinking(self):
+        """The chat (300) and review (260) budgets used to come back empty."""
+        for budget in (300, 260):
+            result = app.call_llm("system", "user", max_tokens=budget)
+            self.assertEqual(result["answer"], "Slow down a little.")
+            sent = self.seen[-1]["body"]
+            self.assertEqual(sent["reasoning_effort"], "low")
+            self.assertGreaterEqual(sent["max_tokens"], budget + 1024)
+
+    def test_budget_exhausted_by_thinking_is_explained(self):
+        cfg = json.loads((app.HERE / "llm_config.json").read_text(encoding="utf-8"))
+        cfg["reasoning_effort"] = "high"
+        cfg["thinking_headroom"] = 0
+        (app.HERE / "llm_config.json").write_text(json.dumps(cfg), encoding="utf-8")
+        with self.assertRaises(app.LLMCallFailed) as ctx:
+            app.call_llm("system", "user", max_tokens=300)
+        self.assertIn("thinking", str(ctx.exception))
+
+    def test_provider_error_reason_reaches_the_page(self):
+        os.environ["GEMINI_API_KEY"] = "AIza-wrong-key-11111111111111111111"
+        with self.assertRaises(app.LLMCallFailed) as ctx:
+            app.call_llm("system", "user")
+        self.assertIn("API key not valid", str(ctx.exception))
+        self.assertIn("400", str(ctx.exception))
+
+    def test_openai_key_in_settings_does_not_beat_gemini_env_key(self):
+        app.LLM_KEY_FILE.write_text("sk-proj-an-openai-key-xxxxxxxxxxxxxxxx\n", encoding="utf-8")
+        result = app.call_llm("system", "user")
+        self.assertEqual(result["answer"], "Slow down a little.")
+        self.assertEqual(self.seen[-1]["key"], self.GOOD)
+
+    def test_pasting_an_openai_key_switches_an_official_gemini_config(self):
+        cfg = json.load(open(os.path.join(HERE, "llm_config.gemini.json"), encoding="utf-8"))
+        (app.HERE / "llm_config.json").write_text(json.dumps(cfg), encoding="utf-8")
+        app.LLM_KEY_FILE.write_text("sk-proj-an-openai-key-xxxxxxxxxxxxxxxx\n", encoding="utf-8")
+        self.assertTrue(app.ensure_llm_config())
+        self.assertEqual(app.load_llm_config()["provider"], "openai")
+
+    def test_custom_config_is_never_rewritten(self):
+        """The mock base_url counts as hand-edited, like Ollama would."""
+        app.LLM_KEY_FILE.write_text("sk-proj-an-openai-key-xxxxxxxxxxxxxxxx\n", encoding="utf-8")
+        app.ensure_llm_config()
+        self.assertEqual(app.load_llm_config()["base_url"], self.base)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

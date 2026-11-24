@@ -6,5 +6,8 @@
   "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
   "model": "gemini-4-hydrogen",
   "api_key_env": "GEMINI_API_KEY",
-  "timeout": 30
+  "timeout": 30,
+  "reasoning_effort": "low",
+  "thinking_headroom": 2048,
+  "_thinking_note": "Gemini counts hidden thinking tokens against max_tokens. The app adds thinking_headroom on top of each answer's length so replies are not empty."
 }
