@@ -2480,3 +2480,63 @@ class TestRequestBodyMatchesTheModel(unittest.TestCase):
         ok = {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}
         out, seen = self._run([("400", err), ok])   # must not raise
         self.assertEqual(out["choices"][0]["message"]["content"], "ok")
+
+
+class TestTheAppStartsWhenSomethingElseIsRunning(unittest.TestCase):
+    """
+    "When I run it, it fails" — reproduced.
+
+    Closing a Terminal window does not always stop the server, and running
+    `python3 app.py` twice starts two. Port 8080 is then still held, and the
+    app died with a traceback ending:
+
+        OSError: [Errno 48] Address already in use
+
+    A bad PORT value did the same with ValueError or OverflowError. None of
+    those are faults in the student's work, so none of them should be shown
+    as one.
+    """
+
+    def test_a_port_already_in_use_moves_to_the_next_free_one(self):
+        import socket
+        import threading
+        from http.server import ThreadingHTTPServer
+        import app
+
+        held = socket.socket()
+        held.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        held.bind(("127.0.0.1", 0))
+        first = held.getsockname()[1]
+        held.listen(1)
+        try:
+            server, port = app._start_server("127.0.0.1", first)
+            try:
+                self.assertNotEqual(port, first,
+                                    "must move off a port that is already held")
+            finally:
+                server.server_close()
+        finally:
+            held.close()
+
+    def test_a_bad_port_value_falls_back_instead_of_crashing(self):
+        import app
+        import os
+        original = os.environ.get("PORT")
+        try:
+            for bad in ("abc", "", "0", "-5", "99999", "80.5"):
+                os.environ["PORT"] = bad
+                port = app._port_from_env()      # must not raise
+                self.assertTrue(1 <= port <= 65535, f"{bad!r} gave {port}")
+        finally:
+            if original is None:
+                os.environ.pop("PORT", None)
+            else:
+                os.environ["PORT"] = original
+
+    def test_main_never_prints_a_traceback_for_a_port_problem(self):
+        """The promise is a sentence, not a stack trace."""
+        import pathlib
+        source = pathlib.Path(app.__file__).read_text(encoding="utf-8")
+        main_src = source[source.index("def main() -> None:"):]
+        self.assertIn("Could not start the web server", main_src)
+        self.assertIn("Could not find a free port", source)

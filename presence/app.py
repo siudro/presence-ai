@@ -2473,8 +2473,88 @@ def print_configuration() -> None:
         log_step("      llm_api_key.txt not found — Settings has not saved a key yet.")
 
 
+def _port_from_env() -> int:
+    """
+    The port to try first, read from PORT.
+
+    A typo there used to end the program with
+    ValueError: invalid literal for int() with base 10: 'abc' - a traceback
+    where a sentence belongs. An environment variable is not something a
+    student types correctly every time.
+    """
+    raw = (os.environ.get("PORT") or "").strip()
+    if not raw:
+        return 8080
+    try:
+        port = int(raw)
+    except ValueError:
+        log_step(f"PORT is set to {raw!r}, which is not a number. "
+                 "Using 8080 instead.", ok=False)
+        return 8080
+    if not (1 <= port <= 65535):
+        log_step(f"PORT is set to {port}, which is outside 1-65535. "
+                 "Using 8080 instead.", ok=False)
+        return 8080
+    return port
+
+
+def _start_server(host: str, first_port: int):
+    """
+    Bind the server, and if the port is taken, find the next free one.
+
+    THIS IS THE FIX FOR "when I run it, it fails".
+        Closing a Terminal window does not always stop the server. Running
+        `python3 app.py` twice starts two. In both cases port 8080 is still
+        held, and binding raised:
+
+            OSError: [Errno 48] Address already in use
+
+        as a full traceback, then the program exited. From the outside that is
+        "the app is broken", when the only problem is that it was already
+        running. Walking forward to the next free port turns a dead end into a
+        working page, and the message says which address to open.
+
+    It tries a small, fixed range rather than scanning everything: if ten
+    ports in a row are taken, something else is wrong and a clear error beats
+    a long search.
+    """
+    last = None
+    for offset in range(0, 10):
+        port = first_port + offset
+        if port > 65535:
+            break
+        try:
+            return ThreadingHTTPServer((host, port), Handler), port
+        except OSError as exc:
+            last = exc
+            code = getattr(exc, "errno", None)
+            # Anything other than "in use" is not worth retrying: a missing
+            # privilege or a bad address will fail on every port.
+            if code not in (errno_address_in_use(), errno_access_denied()):
+                raise
+            if offset == 0:
+                log_step(f"Port {port} is already in use — is another copy of "
+                         "the app still running?", ok=False)
+            continue
+    raise SystemExit(
+        "Could not find a free port between %d and %d. Close the other copy "
+        "of the app (or any program using those ports) and start it again."
+        % (first_port, min(first_port + 9, 65535))
+    )
+
+
+def errno_address_in_use():
+    import errno
+    return errno.EADDRINUSE
+
+
+def errno_access_denied():
+    import errno
+    return errno.EACCES
+
+
 def main() -> None:
-    port = int(os.environ.get("PORT") or 8080)
+    port = _port_from_env()
     host = os.environ.get("HOST") or "0.0.0.0"
 
     print()
@@ -2484,9 +2564,21 @@ def main() -> None:
     run_startup_checks()
     print_configuration()
 
-    server = ThreadingHTTPServer((host, port), Handler)
+    try:
+        server, port = _start_server(host, port)
+    except SystemExit:
+        raise
+    except OSError as exc:
+        # Any remaining bind failure becomes a sentence, not a traceback.
+        raise SystemExit(
+            "Could not start the web server: %s. Try setting a different port, "
+            "for example:  PORT=8090 python3 app.py" % (exc,)
+        ) from None
+
     print()
     log_step(f"Server listening on {_c(f'http://localhost:{port}', '92')}", ok=True)
+    if port != _port_from_env():
+        log_step("Open the address above, not 8080 — this run used the next free port.", ok=False)
     log_step("Every chat request and tool use will appear below.")
     log_step("Press Ctrl+C to stop.")
     print()

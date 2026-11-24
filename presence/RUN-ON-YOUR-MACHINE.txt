@@ -18,11 +18,16 @@ STEP 2 — Start it
 -----------------
     python3 app.py
 
-You should see:
+You should see a banner, a test count, and then:
 
-    [presence] PRESENCE AI measuring tool on http://0.0.0.0:8080
+    [presence] OK   Server listening on http://localhost:8080
 
 Leave this window open. That window IS the website.
+
+If it says the port is already in use, the app now starts on the next free
+port (8081, 8082, ...) and prints the exact address. Open THAT address. The
+usual cause is an older copy still running — press Ctrl+C in its window, or
+close it with the red button, then start again.
 
 
 STEP 3 — Open the page
