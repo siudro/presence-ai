@@ -1605,6 +1605,67 @@ class LLMNotConfigured(Exception):
     """No usable provider: the page must answer from its own measurements."""
 
 
+def friendly_llm_error(exc) -> str:
+    """
+    Turn a transport failure into a sentence a 13-year-old can act on.
+
+    WHAT WENT WRONG BEFORE THIS EXISTED
+        call_llm passed the raw exception text straight to the browser, so a
+        student whose Python had no CA bundle saw, in the coach's review card:
+
+            <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] unable to get
+             local issuer certificate (_ssl.c:1147)>
+
+        That is not a message; it is a stack trace with the care removed.
+
+    The raw text is NOT discarded: call_llm still logs it to the server
+    console, which is where a bug report gets read. Only the browser copy is
+    translated. Matching is on the text because urllib wraps everything in
+    URLError.
+    """
+    text = str(exc or "").lower()
+
+    if "certificate_verify_failed" in text or "certificate verify failed" in text:
+        return (
+            "This computer could not prove it was talking securely to the AI "
+            "service, so the connection was stopped. Nothing was sent. Usually "
+            "Python is missing its certificate bundle: run Install Certificates "
+            "(macOS, python.org builds) or reinstall Python from python.org, "
+            "then restart the app."
+        )
+    if "timed out" in text or "timeout" in text:
+        return (
+            "The AI service took too long to answer. Your numbers are still "
+            "above. Check the internet connection and try the review again."
+        )
+    if "name or service not known" in text or "nodename nor servname" in text \
+            or "temporary failure in name resolution" in text:
+        return (
+            "This computer could not reach the AI service by name. That is "
+            "usually the internet connection or Wi-Fi, not the app."
+        )
+    if "401" in text or "unauthorized" in text or "incorrect api key" in text:
+        return (
+            "The AI key was refused. Open Settings, check the key was pasted "
+            "whole, and that it belongs to the provider configured there."
+        )
+    if "429" in text or "rate limit" in text or "quota" in text:
+        return (
+            "The AI service is rate-limiting this key right now. Wait a minute "
+            "and try again. Your measurements are unaffected."
+        )
+    if "connection refused" in text or "connection reset" in text:
+        return (
+            "The connection to the AI service was refused or dropped mid-answer. "
+            "Check the internet connection and try again."
+        )
+    return (
+        "The AI service did not answer, so no review was written. Your numbers "
+        "above were measured on this device and are still correct. Try again in "
+        "a moment."
+    )
+
+
 class LLMCallFailed(Exception):
     """The provider was configured but the request did not produce an answer."""
 
@@ -1685,8 +1746,10 @@ def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
     except LLMCallFailed:
         raise
     except Exception as exc:  # noqa: BLE001
-        log_step("LLM  ← FAILED: " + str(exc)[:120] + "  [" + label + "]", ok=False)
-        raise LLMCallFailed(str(exc)[:200]) from exc
+        # Console gets the real thing, so a bug can be diagnosed; the browser
+        # gets a sentence. Never the other way round.
+        log_step("LLM  ← FAILED: " + str(exc)[:160] + "  [" + label + "]", ok=False)
+        raise LLMCallFailed(friendly_llm_error(exc)) from exc
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "PresenceAI/1.0"

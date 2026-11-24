@@ -2345,3 +2345,40 @@ class TestPromptsAreDocumented(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestErrorsReachTheStudentAsSentences(unittest.TestCase):
+    """
+    The bug this locks down: the coach's review card printed a raw Python
+    exception. A student saw
+
+        <urlopen error [SSL: CERTIFICATE_VERIFY_FAILED] ...>
+
+    where advice belongs. The cause was a missing CA bundle on that machine,
+    which tls.py now handles, but a transport error is still forwarded when
+    anything else fails. Whatever happens, the browser receives a sentence and
+    the console keeps the detail.
+    """
+
+    def test_tls_failure_becomes_a_sentence(self):
+        import ssl
+        import urllib.error
+        exc = urllib.error.URLError(ssl.SSLCertVerificationError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+            "unable to get local issuer certificate (_ssl.c:1147)"))
+        message = app.friendly_llm_error(exc)
+        for leak in ("urlopen", "CERTIFICATE_VERIFY_FAILED", "_ssl.c", "Traceback"):
+            self.assertNotIn(leak, message, f"raw detail reached the browser: {leak}")
+        self.assertIn("certificate", message.lower())
+
+    def test_every_transport_failure_says_something_useful(self):
+        for raw in ["timed out", "Name or service not known", "HTTP 401 Unauthorized",
+                    "429 rate limit", "Connection refused", "something new entirely"]:
+            message = app.friendly_llm_error(raw)
+            self.assertGreater(len(message), 40, f"too terse for {raw!r}")
+            self.assertNotIn("urlopen", message)
+            self.assertNotIn("your measurements are wrong", message.lower())
+
+    def test_empty_exception_still_reads_as_english(self):
+        message = app.friendly_llm_error(None)
+        self.assertTrue(message[0].isupper())
+        self.assertTrue(message.endswith((".", "!")))
