@@ -2382,3 +2382,101 @@ class TestErrorsReachTheStudentAsSentences(unittest.TestCase):
         message = app.friendly_llm_error(None)
         self.assertTrue(message[0].isupper())
         self.assertTrue(message.endswith((".", "!")))
+
+class TestRequestBodyMatchesTheModel(unittest.TestCase):
+    """
+    Locks down three bugs that each made EVERY AI reply fail against a current
+    OpenAI model, while looking like a network or a certificate problem:
+
+      1. `max_tokens` is refused outright; the model wants
+         `max_completion_tokens`.
+      2. `temperature` other than the default is refused.
+      3. A reasoning model spends its whole budget thinking and returns an
+         EMPTY answer with finish_reason "length".
+
+    A fourth bug hid inside the retry logic itself: "max_completion_tokens"
+    contains the substring "max_tokens", so a substring test popped a key that
+    was not in the body and raised KeyError instead of retrying.
+
+    These are tested against a fake transport, so no network and no key is
+    needed, and the real provider is never called from the suite.
+    """
+
+    def _cfg(self):
+        return {"provider": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "model": "gpt-6-luna", "timeout": 5}
+
+    def _run(self, responses):
+        """Drive _post_chat against scripted transport behaviour."""
+        import io
+        import json as _json
+        import urllib.error
+
+        seen = []
+        queue = list(responses)
+
+        def fake_urlopen(req, timeout=None):
+            body = _json.loads(req.data.decode())
+            seen.append(body)
+            item = queue.pop(0)
+            if isinstance(item, tuple) and item[0] == "400":
+                raise urllib.error.HTTPError(
+                    req.full_url, 400, "Bad Request", {},
+                    io.BytesIO(item[1].encode()))
+            return io.BytesIO(_json.dumps(item).encode())
+
+        import app
+
+        # _post_chat does `from tls import urlopen` INSIDE the function, so the
+        # patch has to be on the tls module before it is entered.
+        import tls
+        original = tls.urlopen
+        tls.urlopen = fake_urlopen
+        app._LEARNED_PARAMS.clear()
+        try:
+            out = app._post_chat("https://api.openai.com/v1/chat/completions",
+                                 {}, self._cfg(), "sys", "user", 0.4, 300, 5, "test")
+        finally:
+            tls.urlopen = original
+            app._LEARNED_PARAMS.clear()
+        return out, seen
+
+    def test_rejected_max_tokens_is_renamed_not_dropped(self):
+        err = ('{"error":{"message":"Unsupported parameter: \'max_tokens\'","'
+               'param":"max_tokens"}}')
+        ok = {"choices": [{"message": {"content": "hello"}, "finish_reason": "stop"}]}
+        out, seen = self._run([("400", err), ok])
+        self.assertEqual(out["choices"][0]["message"]["content"], "hello")
+        self.assertIn("max_completion_tokens", seen[-1])
+        self.assertNotIn("max_tokens", seen[-1])
+
+    def test_rejected_temperature_is_dropped(self):
+        err = ('{"error":{"message":"\'temperature\' does not support 0.4",'
+               '"param":"temperature"}}')
+        ok = {"choices": [{"message": {"content": "fine"}, "finish_reason": "stop"}]}
+        out, seen = self._run([("400", err), ok])
+        self.assertNotIn("temperature", seen[-1])
+        self.assertEqual(out["choices"][0]["message"]["content"], "fine")
+
+    def test_truncated_answer_grows_the_budget_instead_of_failing(self):
+        empty = {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]}
+        ok = {"choices": [{"message": {"content": "a real review"}, "finish_reason": "stop"}]}
+        out, seen = self._run([empty, ok])
+        self.assertEqual(out["choices"][0]["message"]["content"], "a real review")
+        field = next(f for f in ("max_completion_tokens", "max_tokens")
+                     if f in seen[0])
+        self.assertGreater(seen[-1][field], seen[0][field],
+                           "the retry must ask for more room, not the same amount")
+
+    def test_substring_trap_does_not_raise_keyerror(self):
+        """
+        "max_completion_tokens" contains "max_tokens". Renaming must depend on
+        what is in the body, never on a substring of the error text.
+        """
+        err = ('{"error":{"message":"Unsupported parameter: \'max_tokens\' is not '
+               'supported with this model. Use \'max_completion_tokens\' instead.",'
+               '"param":"max_tokens"}}')
+        ok = {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}
+        out, seen = self._run([("400", err), ok])   # must not raise
+        self.assertEqual(out["choices"][0]["message"]["content"], "ok")

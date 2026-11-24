@@ -1674,6 +1674,190 @@ class LLMCallFailed(Exception):
         self.status = status
 
 
+# What each (model, base_url) has been observed to accept. Without this the
+# negotiation re-probes on every single call: the student pays two wasted
+# round-trips per question forever. Learned once per process, and only from a
+# real provider response, never from a guess.
+_LEARNED_PARAMS = {}
+
+
+def _learned_key(cfg):
+    return (str(cfg.get("base_url") or ""), str(cfg.get("model") or ""))
+
+
+def _post_chat(url, headers, cfg, system, user, temperature, max_tokens,
+               timeout, label):
+    """
+    POST one chat completion, negotiating parameters the model may refuse.
+
+    WHY NEGOTIATION AND NOT A CONFIG FLAG
+        Verified against the live API on 2026-11-24: gpt-6-luna rejects
+        `max_tokens` ("Use 'max_completion_tokens' instead") AND rejects any
+        `temperature` other than the default ("'temperature' does not support
+        0.4 with this model"). Older models, local servers (Ollama, vLLM) and
+        third-party gateways require the opposite in both cases. A per-model
+        rule table would rot the next time a model shipped, and the student
+        would be left reading a 400.
+
+        So: send the best modern request, and if the provider refuses a
+        parameter, drop it (or rename it) and retry. The loop is bounded, so a
+        genuinely bad request still fails loudly instead of retrying forever.
+
+    Every change is logged. A coach that silently altered its own sampling
+    settings would be misreporting its behaviour.
+    """
+    import json as _json
+    import urllib.error
+    import urllib.request as _ur
+    from tls import urlopen as _urlopen
+
+    openai_official = url.rstrip("/").endswith("api.openai.com/v1")
+    token_field = "max_completion_tokens" if openai_official else "max_tokens"
+    override = str(cfg.get("token_param") or "").strip()
+    if override in ("max_tokens", "max_completion_tokens"):
+        token_field = override
+
+    # The cache records BEHAVIOUR, not a raw field name. A stored name can go
+    # stale (learned from a different endpoint or an older model) and then the
+    # body carries a key the provider rejects, or a key that does not exist at
+    # all. Only "does this model want the modern token field" is remembered,
+    # and the name is always derived from the current endpoint.
+    learned = _LEARNED_PARAMS.get(_learned_key(cfg))
+    if learned and learned.get("modern_token_field") is not None:
+        token_field = ("max_completion_tokens"
+                       if learned["modern_token_field"] else "max_tokens")
+
+    # REASONING HEADROOM. Verified 2026-11-24: gpt-6-luna spends completion
+    # tokens thinking before it writes anything, and when the budget runs out
+    # mid-thought it returns finish_reason "length" with an EMPTY answer. The
+    # review prompt at 260 tokens produced 0 characters and burned all 260 on
+    # reasoning; the same call at 900 produced 183 characters of review.
+    #
+    # So max_tokens here means "words you may say", and the request adds room
+    # above it for the model to think. Only OpenAI's own endpoint is treated
+    # this way: a local model does not reason and would just run longer.
+    budget = max_tokens
+    if token_field == "max_completion_tokens":
+        budget = max(max_tokens, max_tokens * 3 + 200)
+
+    body = {
+        "model": cfg["model"],
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        token_field: budget,
+    }
+    send_temperature = (
+        temperature is not None
+        and not cfg.get("no_temperature")
+        and not (learned and learned.get("no_temperature"))
+    )
+    if send_temperature:
+        body["temperature"] = temperature
+
+    # Sampling options are genuinely optional, so they are the first to go.
+    droppable = ("temperature", "top_p", "presence_penalty", "frequency_penalty")
+
+    last_error = ""
+    # Two independent reasons to retry: a refused parameter (a 400) and a
+    # truncated answer (finish_reason "length"). They are tracked separately so
+    # a long reasoning model cannot loop forever on either one.
+    param_retries = 0
+    length_retries = 0
+
+    for _attempt in range(8):
+        req = _ur.Request(url, data=_json.dumps(body).encode("utf-8"),
+                          method="POST", headers=headers)
+        try:
+            with _urlopen(req, timeout=timeout) as resp:
+                payload = _json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raw = ""
+            try:
+                raw = exc.read().decode("utf-8", "replace")
+            except Exception:  # noqa: BLE001
+                pass
+            last_error = "HTTP %d: %s" % (exc.code, raw[:300])
+            if exc.code != 400 or param_retries >= 4:
+                raise RuntimeError(last_error) from None
+            param_retries += 1
+
+            # Read the provider's own `param` field. Matching substrings of the
+            # human message is unreliable: the word "temperature" appears in
+            # the prose of unrelated errors, which once dropped the wrong key.
+            named = ""
+            try:
+                named = str((_json.loads(raw).get("error") or {}).get("param") or "")
+            except Exception:  # noqa: BLE001
+                named = ""
+            lowered = raw.lower()
+
+            # A refused token field is RENAMED, not dropped. Dropping it would
+            # send a request with no limit at all, which the provider accepts
+            # and then bills for however long the model feels like thinking.
+            # The value must carry across the rename.
+            if named == "max_tokens" and "max_tokens" in body:
+                body["max_completion_tokens"] = body.pop("max_tokens")
+                log_step("LLM    provider wants max_completion_tokens - retrying", ok=True)
+                continue
+            if named == "max_completion_tokens" and "max_completion_tokens" in body:
+                body["max_tokens"] = body.pop("max_completion_tokens")
+                log_step("LLM    provider wants max_tokens - retrying", ok=True)
+                continue
+            if named in droppable and named in body:
+                body.pop(named, None)
+                log_step("LLM    provider refused '%s' - retrying without it" % named, ok=True)
+                continue
+            # Substring matching is dangerous here: "max_completion_tokens"
+            # CONTAINS "max_tokens", so a provider saying the former made this
+            # branch pop a key that was never in the body. Presence in the body
+            # is the only reliable test, and the two fields are exclusive.
+            if "max_tokens" in body and "max_completion_tokens" in lowered:
+                body["max_completion_tokens"] = body.pop("max_tokens")
+                log_step("LLM    provider asked for max_completion_tokens - retrying", ok=True)
+                continue
+            if "max_completion_tokens" in body and "max_tokens" in lowered \
+                    and "max_completion_tokens" not in lowered:
+                body["max_tokens"] = body.pop("max_completion_tokens")
+                log_step("LLM    provider asked for max_tokens - retrying", ok=True)
+                continue
+            if "temperature" in lowered and "temperature" in body:
+                body.pop("temperature", None)
+                log_step("LLM    provider refused 'temperature' - retrying without it", ok=True)
+                continue
+            raise RuntimeError(last_error) from None
+
+        # Request accepted. Check whether it actually said anything.
+        choices = payload.get("choices") or []
+        first = choices[0] if choices else {}
+        answer = ((first.get("message") or {}).get("content") or "").strip()
+        finish = str(first.get("finish_reason") or "")
+
+        # Which budget field is actually in the body NOW? It may have been
+        # renamed during parameter negotiation, so the original name can no
+        # longer be trusted to find it.
+        live_field = next((f for f in ("max_completion_tokens", "max_tokens")
+                           if f in body), None)
+        if not answer and finish == "length" and length_retries < 2 and live_field:
+            # The model thought until the budget ran out and never wrote a
+            # word. Grow the ceiling and try again: the amount of reasoning is
+            # not predictable, so measuring beats picking one number.
+            length_retries += 1
+            body[live_field] = int(body[live_field]) * 2
+            log_step("LLM    ran out of room thinking - retrying with %d tokens"
+                     % body[live_field], ok=True)
+            continue
+
+        _LEARNED_PARAMS[_learned_key(cfg)] = {
+            "modern_token_field": "max_completion_tokens" in body,
+            "no_temperature": "temperature" not in body,
+        }
+        return payload
+
+    raise RuntimeError(last_error or "no usable request")
+
+
 def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
              timeout=None):
     """
@@ -1703,15 +1887,6 @@ def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
                 "Settings -> AI provider key, and a config will be created."
             )
 
-    body = {
-        "model": cfg["model"],
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
     url = cfg["base_url"].rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json"}
     key = read_llm_key(cfg)
@@ -1724,12 +1899,9 @@ def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
              + "  system " + str(len(system)) + " chars")
     started = time.time()
     try:
-        import urllib.request as _ur
-        req = _ur.Request(url, data=json.dumps(body).encode("utf-8"),
-                          method="POST", headers=headers)
-        from tls import urlopen as _urlopen
-        with _urlopen(req, timeout=timeout or cfg.get("timeout", 25)) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        data = _post_chat(url, headers, cfg, system, user,
+                          temperature, max_tokens,
+                          timeout or cfg.get("timeout", 25), label)
         elapsed = time.time() - started
         answer = ""
         choices = data.get("choices") or []
@@ -1737,8 +1909,18 @@ def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
             answer = (choices[0].get("message") or {}).get("content", "")
         answer = (answer or "").strip()
         if not answer:
-            log_step("LLM  ← empty completion  [" + label + "]", ok=False)
-            raise LLMCallFailed("The AI provider returned an empty answer.")
+            finish = ""
+            if choices:
+                finish = str(choices[0].get("finish_reason") or "")
+            log_step("LLM  ← empty completion (finish_reason=%s)  [%s]"
+                     % (finish or "none", label), ok=False)
+            raise LLMCallFailed(
+                "The AI model started writing but ran out of room before it "
+                "said anything. This is a model setting, not your microphone "
+                "or your speaking. Your numbers are still correct."
+                if finish == "length"
+                else "The AI provider returned an empty answer."
+            )
         log_step("LLM  ← " + str(len(answer)) + " chars in "
                  + format(elapsed, ".1f") + "s  [" + label + "]", ok=True)
         return {"answer": answer, "provider": cfg.get("provider", "custom"),
