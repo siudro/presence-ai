@@ -43,6 +43,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Deque, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
+import urllib.error as _urlerror
 
 # Bumped whenever a fix changes observable behaviour, so the page can show
 # which build is actually running. Answering "are you on the new version?"
@@ -1228,9 +1229,25 @@ def ensure_llm_config() -> bool:
     because of how this was built. If the key looks like OpenAI or Google,
     write the matching config.
     """
+    existing = None
     if (HERE / "llm_config.json").exists():
-        return True
-    key = read_llm_key({})
+        existing = load_llm_config()
+        # Switch only between the two official configs, and only when the key
+        # pasted in Settings plainly belongs to the other one. A hand-edited
+        # config (Ollama, a proxy, another base_url) is never touched.
+        official = ("https://api.openai.com/v1",
+                    "https://generativelanguage.googleapis.com/v1beta/openai")
+        file_key = ""
+        try:
+            if LLM_KEY_FILE.is_file():
+                file_key = normalise_key(LLM_KEY_FILE.read_text(encoding="utf-8"))
+        except OSError:
+            file_key = ""
+        if not (existing and file_key
+                and str(existing.get("base_url", "")).rstrip("/") in official
+                and not key_matches_provider(file_key, existing)):
+            return True
+    key = read_llm_key({}) if existing is None else file_key
     if not key:
         return False
 
@@ -1257,7 +1274,10 @@ def ensure_llm_config() -> bool:
         (HERE / "llm_config.json").write_text(
             json.dumps(cfg, indent=2) + "\n", encoding="utf-8"
         )
-        if not _LLM_CONFIG_NOTED["done"]:
+        if existing is not None:
+            log_step("Switched llm_config.json to " + cfg["provider"]
+                     + " to match the key pasted in Settings", ok=True)
+        elif not _LLM_CONFIG_NOTED["done"]:
             _LLM_CONFIG_NOTED["done"] = True
             log_step("Created llm_config.json from your pasted key", ok=True)
         return True
@@ -1271,22 +1291,38 @@ def read_llm_key(cfg: Optional[dict] = None) -> str:
 
     Order: llm_api_key.txt (what the page writes), then a literal "api_key"
     field, then the env var named in api_key_env, then LLM_API_KEY.
-    """
-    """
-    The AI-chat key, from the same places the Cohere key uses.
 
-    It was read ONLY from an environment variable, so a key pasted into the
-    app's Settings did nothing for the chat — which is exactly why a paid key
-    appeared not to work. Order: the file the page writes, then the env var
-    named in llm_config.json, then LLM_API_KEY.
+    A key that plainly belongs to the OTHER provider is skipped while a
+    matching one exists elsewhere. Before this, an OpenAI key once saved in
+    Settings silently beat an exported GEMINI_API_KEY and was sent to Google,
+    which answered "400 Bad Request" with no hint why.
     """
+    file_key = ""
     try:
         if LLM_KEY_FILE.is_file():
-            key = normalise_key(LLM_KEY_FILE.read_text(encoding="utf-8"))
-            if key:
-                return key
+            file_key = normalise_key(LLM_KEY_FILE.read_text(encoding="utf-8"))
     except OSError:
-        pass
+        file_key = ""
+    if file_key and key_matches_provider(file_key, cfg):
+        return file_key
+    other = _read_llm_key_elsewhere(cfg)
+    if other and (not file_key or key_matches_provider(other, cfg)):
+        return other
+    return file_key or other
+
+
+def key_matches_provider(key: str, cfg: Optional[dict]) -> bool:
+    """False only when the key's prefix clearly belongs to a different provider."""
+    provider = str((cfg or {}).get("provider") or "").lower()
+    if provider == "gemini" and key.startswith("sk-"):
+        return False
+    if provider == "openai" and key.startswith("AIza"):
+        return False
+    return True
+
+
+def _read_llm_key_elsewhere(cfg: Optional[dict]) -> str:
+    """Every key source except llm_api_key.txt."""
 
     # A literal "api_key" field in llm_config.json. Discouraged by the
     # template, but it is an obvious thing to do, so it must not silently fail.
@@ -1596,6 +1632,56 @@ class LLMCallFailed(Exception):
         self.status = status
 
 
+def is_gemini(cfg: dict) -> bool:
+    return (str(cfg.get("provider") or "").lower() == "gemini"
+            or "generativelanguage.googleapis.com" in str(cfg.get("base_url") or ""))
+
+
+def apply_thinking_budget(body: dict, cfg: dict) -> None:
+    """
+    Make room for a thinking model's hidden reasoning.
+
+    Gemini's OpenAI-compatible endpoint counts THINKING tokens against
+    max_tokens, and gemini-4-hydrogen thinks at a medium level by default.
+    A 260-300 token budget was spent entirely on thinking, so the chat and the
+    review came back with empty content (finish_reason "length") on every
+    call, while the 1200-token script route usually survived.
+
+    max_tokens is still the length of the VISIBLE answer the caller asked for;
+    the headroom is added on top. Both are overridable in llm_config.json.
+    """
+    if not is_gemini(cfg) and "reasoning_effort" not in cfg:
+        return
+    effort = str(cfg.get("reasoning_effort") or ("low" if is_gemini(cfg) else "")).strip()
+    if effort:
+        body["reasoning_effort"] = effort
+    try:
+        headroom = int(cfg.get("thinking_headroom", 2048 if is_gemini(cfg) else 0))
+    except (TypeError, ValueError):
+        headroom = 2048
+    body["max_tokens"] = int(body["max_tokens"]) + max(0, headroom)
+
+
+def provider_error_message(exc) -> str:
+    """The human-readable reason inside a provider's error response."""
+    try:
+        raw = exc.read().decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        raw = ""
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list) and data:
+            data = data[0]
+        err = data.get("error") if isinstance(data, dict) else None
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"]).strip()
+        if isinstance(err, str) and err.strip():
+            return err.strip()
+    except (ValueError, AttributeError):
+        pass
+    return raw.strip()[:300] or str(getattr(exc, "reason", "") or exc)
+
+
 def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
              timeout=None):
     """
@@ -1634,6 +1720,7 @@ def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
         "temperature": temperature,
         "max_tokens": max_tokens,
     }
+    apply_thinking_budget(body, cfg)
     url = cfg["base_url"].rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json"}
     key = read_llm_key(cfg)
@@ -1653,12 +1740,21 @@ def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
             data = json.loads(resp.read().decode("utf-8"))
         elapsed = time.time() - started
         answer = ""
+        finish = ""
         choices = data.get("choices") or []
         if choices:
             answer = (choices[0].get("message") or {}).get("content", "")
+            finish = str(choices[0].get("finish_reason") or "")
         answer = (answer or "").strip()
         if not answer:
-            log_step("LLM  ← empty completion  [" + label + "]", ok=False)
+            log_step("LLM  ← empty completion (finish_reason="
+                     + (finish or "?") + ")  [" + label + "]", ok=False)
+            if finish == "length":
+                raise LLMCallFailed(
+                    "The AI provider returned an empty answer: the model used its "
+                    "whole token budget (" + str(body["max_tokens"]) + ") thinking "
+                    "before writing. Raise 'thinking_headroom' or lower "
+                    "'reasoning_effort' in llm_config.json.")
             raise LLMCallFailed("The AI provider returned an empty answer.")
         log_step("LLM  ← " + str(len(answer)) + " chars in "
                  + format(elapsed, ".1f") + "s  [" + label + "]", ok=True)
@@ -1666,6 +1762,15 @@ def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
                 "model": model_name}
     except LLMCallFailed:
         raise
+    except _urlerror.HTTPError as exc:
+        # The provider's JSON body says WHY (bad key, quota, unknown model).
+        # str(exc) is only "HTTP Error 400: Bad Request", which hid all of it.
+        detail = provider_error_message(exc)
+        log_step("LLM  ← HTTP " + str(exc.code) + ": " + detail[:160]
+                 + "  [" + label + "]", ok=False)
+        status = exc.code if exc.code in (401, 403, 404, 429) else 502
+        raise LLMCallFailed("HTTP " + str(exc.code) + " from the AI provider: "
+                            + detail[:300], status=status) from exc
     except Exception as exc:  # noqa: BLE001
         log_step("LLM  ← FAILED: " + str(exc)[:120] + "  [" + label + "]", ok=False)
         raise LLMCallFailed(str(exc)[:200]) from exc
