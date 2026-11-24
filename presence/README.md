@@ -138,6 +138,15 @@ bug cannot quietly return.
 - **Filler lists for some languages are conservative.** English and Arabic are tuned against real
   use; several others are reasonable but not validated against a corpus.
 - **Free-tier AI models may be refused** by their provider when called from a third-party app.
+- **A Python with no certificate bundle used to break every AI call.** Some Python
+  installers (python.org on macOS without the "Install Certificates" step, most
+  pyenv builds, some Homebrew setups) ship without CA certificates, so every HTTPS
+  request failed with `CERTIFICATE_VERIFY_FAILED`. That error then reached the
+  student's screen as raw exception text instead of a readable message.
+  `tls.py` now finds a working bundle, and certificate verification is never
+  disabled — a quiet "fix" would have put your API key in the clear. If no bundle
+  can be found at all, the app says so in one sentence and refuses, rather than
+  sending anything unverified.
 
 ---
 
