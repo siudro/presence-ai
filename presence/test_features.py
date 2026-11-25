@@ -152,8 +152,13 @@ class TestKeyHandling(unittest.TestCase):
 
     def tearDown(self):
         self._iso.__exit__(None, None, None)
+        # Always restore: a test that sets a fake env key must not leave it
+        # behind, or the live server started by `python3 app.py` (which runs
+        # this suite in-process) ends up using "env-key-xxxxxxxx".
         if self._saved_env is not None:
             os.environ["COHERE_API_KEY"] = self._saved_env
+        else:
+            os.environ.pop("COHERE_API_KEY", None)
 
     def test_no_key_means_not_configured(self):
         status = app.key_status()
@@ -2079,29 +2084,29 @@ class TestUpdateAdoptsZipFolder(unittest.TestCase):
     def setUp(self):
         import update_app
         self.u = update_app
-        self.assertIn("def adopt_zip_folder", open("update_app.py", encoding="utf-8").read())
+        self.assertIn("def adopt_zip_folder", open(os.path.join(HERE, "update_app.py"), encoding="utf-8").read())
 
     def test_adopt_is_offered_instead_of_refusing(self):
-        src = open("update_app.py", encoding="utf-8").read()
+        src = open(os.path.join(HERE, "update_app.py"), encoding="utf-8").read()
         # The old behaviour: print "not a git checkout" and return 1.
         self.assertNotIn("This folder is not a git checkout.", src)
         self.assertIn("adopt_zip_folder()", src)
 
     def test_run_supplies_path_so_credentials_resolve(self):
         """A restricted PATH hid the credential helper and broke every pull."""
-        src = open("update_app.py", encoding="utf-8").read()
+        src = open(os.path.join(HERE, "update_app.py"), encoding="utf-8").read()
         self.assertIn('env["PATH"] = os.pathsep.join(parts)', src)
         self.assertIn('GIT_TERMINAL_PROMPT', src)
 
     def test_adopt_descends_into_presence_subfolder(self):
         """The repo nests its code under presence/; copying it wholesale
         produced presence/presence in the student's folder."""
-        src = open("update_app.py", encoding="utf-8").read()
+        src = open(os.path.join(HERE, "update_app.py"), encoding="utf-8").read()
         self.assertIn('inner = scratch / "presence"', src)
 
     def test_clone_pins_main_branch(self):
         """Cloning without --branch landed on probe, which then had no upstream."""
-        src = open("update_app.py", encoding="utf-8").read()
+        src = open(os.path.join(HERE, "update_app.py"), encoding="utf-8").read()
         self.assertIn('"--branch", "main"', src)
 
 

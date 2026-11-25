@@ -1247,7 +1247,14 @@ def ensure_llm_config() -> bool:
                 and str(existing.get("base_url", "")).rstrip("/") in official
                 and not key_matches_provider(file_key, existing)):
             return True
-    key = read_llm_key({}) if existing is None else file_key
+    if existing is None:
+        # On a host like Railway there is no llm_config.json (it is
+        # gitignored), only an exported GEMINI_API_KEY / OPENAI_API_KEY.
+        key = (read_llm_key({})
+               or (os.environ.get("GEMINI_API_KEY") or "").strip()
+               or (os.environ.get("OPENAI_API_KEY") or "").strip())
+    else:
+        key = file_key
     if not key:
         return False
 
@@ -2315,7 +2322,10 @@ def main() -> None:
     print(_c("  PRESENCE AI", "1"), _c("— pacing coach", "2"))
     print(f"  {'-' * 56}")
 
-    run_startup_checks()
+    # The startup test run is for a student's own Terminal. On a server
+    # (Railway, Docker) it only slows the boot, so it can be switched off.
+    if (os.environ.get("PRESENCE_SKIP_STARTUP_TESTS") or "").strip() in ("", "0"):
+        run_startup_checks()
     print_configuration()
 
     server = ThreadingHTTPServer((host, port), Handler)

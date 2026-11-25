@@ -1,0 +1,10 @@
+.git
+**/__pycache__
+**/*.pyc
+presence/api_key.txt
+presence/llm_api_key.txt
+presence/llm_config.json
+presence/sessions.jsonl
+presence/.upload_*
+presence/coach_queue
+presence/.api_key.backup
