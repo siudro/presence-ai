@@ -269,6 +269,9 @@ class TestDeployedServerRegression(unittest.TestCase):
 
 class TestCiWorkflow(unittest.TestCase):
     def setUp(self):
+        # The workflow is committed from a machine with `workflows` permission,
+        # so the agent token may not be able to add it. Absent here means
+        # "not yet added", which is a skip — not a failing build.
         self.text = repo_file(".github", "workflows", "tests.yml")
 
     def test_runs_on_push_to_main_and_on_pull_requests(self):

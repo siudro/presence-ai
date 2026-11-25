@@ -143,11 +143,24 @@ to allow the mic in their browser's site settings — it is not an app bug.
 
 ---
 
-## Optional — deploy automatically from GitHub Actions
+## Optional — automatic tests and deploys on every push
 
-`.github/workflows/tests.yml` runs the test suite on every push, builds the
-Docker image, boots it and checks `/api/health`, and only then deploys. To turn
-the deploy step on:
+**This file is not in the repository yet.** The agent that prepared the deploy
+does not have GitHub permission to add a workflow file, so it has to be added
+by you, once. Steps 1–2 below are what add it.
+
+### 1. Add the workflow file
+
+In the GitHub repository, click **Add file → Create new file**, name it
+`.github/workflows/tests.yml` (typing the slashes creates the folders), and
+paste the contents of the `tests.yml` block handed to you with this task.
+Commit it to `main`.
+
+That is it for the tests: from now on every push runs
+`python3 run_all_tests.py`, builds the Docker image, boots it and checks
+`/api/health`. A red run shows as a red X on the commit.
+
+### 2. Let it deploy for you (optional)
 
 1. Railway → **Account Settings** → **Tokens** → **Create Token**, scoped to
    the project. Copy it.
@@ -156,8 +169,13 @@ the deploy step on:
 3. If the Railway service is not called `presence-ai`, add a repository
    **variable** `RAILWAY_SERVICE` with its name.
 
-Without the secret, tests still run and a red run never reaches Railway; the
-deploy job skips and says so.
+Without the secret, the tests still run and the deploy job skips and says so —
+nothing fails. A red test run never reaches Railway, because the deploy job
+waits for the test and image jobs to pass.
+
+> Railway also redeploys on its own whenever `main` changes, once the project
+> is connected to the repository in step 3. The workflow matters because it is
+> what stops a broken commit from reaching judges.
 
 ## Troubleshooting
 
