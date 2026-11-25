@@ -1,0 +1,1770 @@
+/* PRESENCE AI — Concept C "Warm Stage" + live speaker meter
+ *
+ * Design intent
+ *  - Paper and ink, not glass and glow. The user is a nervous school student
+ *    about to stand up and speak; warm tones steady her, dark tech tones do not.
+ *  - The metaphor is a stage: one bold recording object, the transcript read
+ *    like a script, progress shown as steps climbed.
+ *  - One accent colour (terracotta) does all the signalling. Nothing else is
+ *    coloured, so an accent always means "look here".
+ *
+ * Assets are linked RELATIVELY (app.css, app.js) so the page also renders when
+ * index.html is opened straight from disk.
+ */
+
+:root {
+  /* Warm neutrals */
+  --paper: #faf6f0;
+  --paper-2: #f2ece3;
+  --ink: #25201b;
+  --ink-soft: #4a4139;
+  --muted: #8a7d72;
+  --faint: #a99c90;
+  --rule: #e8dfd4;
+
+  /* One accent, used sparingly */
+  --accent: #c2410c;
+  --accent-soft: #fde4d4;
+  --accent-ink: #b45309;
+
+  /* Semantic, only for real warnings */
+  --warn: #b45309;
+  --bad: #c2410c;
+  --good: #15803d;
+
+  --radius: 24px;
+  --shadow: 0 22px 48px -20px rgba(37, 32, 27, .42);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  background: #efe9e1;
+  color: var(--ink);
+  font: 16px/1.5 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  padding: 0 0 env(safe-area-inset-bottom);
+}
+
+/* The app presents as a single warm sheet, full-bleed on a phone and a
+   centred card on a desktop. Mobile-first: these are the phone styles. */
+.app {
+  width: 100%;
+  max-width: 460px;
+  background: var(--paper);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 0 22px calc(24px + env(safe-area-inset-bottom));
+  position: relative;
+  overflow-x: hidden;
+}
+
+@media (min-width: 620px) {
+  body { padding: 32px 24px; align-items: flex-start; }
+  .app {
+    min-height: 0;
+    border-radius: 32px;
+    box-shadow: var(--shadow);
+    padding: 6px 26px 30px;
+    margin-bottom: 40px;
+  }
+}
+
+/* ---------------------------------------------------------------- topbar */
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 0 4px;
+  flex: none;
+}
+
+.brandmark { display: flex; align-items: center; gap: 9px; }
+
+.mark {
+  width: 26px; height: 26px;
+  border-radius: 9px;
+  background: var(--accent);
+  position: relative;
+  flex: none;
+}
+
+.mark::after {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: 0 0 0 2px var(--paper);
+}
+
+.brandname {
+  font-family: "Fraunces", Georgia, "Times New Roman", serif;
+  font-weight: 900;
+  font-size: 16px;
+  letter-spacing: -.3px;
+}
+
+.iconbtn {
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid var(--rule);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+  transition: border-color .18s ease, color .18s ease;
+}
+
+.iconbtn:hover { border-color: var(--faint); color: var(--ink); }
+.iconbtn svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------------------------------------------------------------- screens */
+
+.screen {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  animation: fade .32s ease;
+}
+
+.screen.active { display: flex; }
+
+@keyframes fade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ------------------------------------------------------------------ home */
+
+.greet { padding: 22px 0 0; }
+
+.eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+
+.greet h1, .rptitle {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(28px, 8.2vw, 34px);
+  font-weight: 600;
+  line-height: 1.14;
+  letter-spacing: -.8px;
+  margin-top: 8px;
+}
+
+.greet h1 em { font-style: italic; color: var(--accent); }
+
+/* The stage card — the signature object. One dark block per screen. */
+.stage {
+  margin-top: 22px;
+  background: var(--ink);
+  border-radius: var(--radius);
+  padding: 22px 20px;
+  position: relative;
+  overflow: hidden;
+  color: var(--paper);
+  flex: none;
+}
+
+.stage::before {
+  content: '';
+  position: absolute;
+  width: 210px; height: 210px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(251, 146, 60, .42), transparent 68%);
+  top: -72px; right: -62px;
+  pointer-events: none;
+}
+
+.stage-label {
+  font-size: 10px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #fbbf24;
+  font-weight: 700;
+  position: relative;
+}
+
+.stage h2 {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1.24;
+  margin-top: 9px;
+  position: relative;
+  letter-spacing: -.3px;
+}
+
+.stage-meta { display: flex; gap: 18px; margin-top: 18px; position: relative; flex-wrap: wrap; }
+.stage-meta div { font-size: 11px; color: #c9bdb1; }
+.stage-meta b {
+  display: block;
+  font-size: 17px;
+  color: var(--paper);
+  font-weight: 700;
+  margin-bottom: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The one primary action on the home screen. Deliberately huge. */
+.record {
+  margin-top: 20px;
+  width: 100%;
+  border: 0;
+  border-radius: 99px;
+  padding: 18px;
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: pointer;
+  flex: none;
+  box-shadow: 0 12px 30px -12px rgba(194, 65, 12, .75);
+  transition: transform .12s ease, filter .16s ease;
+}
+
+.record:hover { filter: brightness(1.06); }
+.record:active { transform: translateY(1px); }
+.record svg { width: 17px; height: 17px; fill: #fff; }
+
+.record:disabled { opacity: .55; cursor: not-allowed; }
+
+/* Settings summary — plain ruled rows, not a dashboard. */
+.targets { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--rule); flex: none; }
+
+.targets-head {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 10px;
+}
+
+.trow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+  width: 100%;
+  background: none;
+  border: 0;
+  font-family: inherit;
+  text-align: left;
+}
+
+.trow span:last-child { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.trow .dim { color: var(--faint); font-weight: 500; font-size: 12px; }
+.trow.asbtn { cursor: pointer; }
+.trow.asbtn:hover span:last-child { color: var(--accent); }
+
+.homerow { margin-top: auto; padding-top: 18px; padding-bottom: 68px; flex: none; }
+
+.ghostbtn {
+  width: 100%;
+  border: 1.5px solid var(--rule);
+  background: transparent;
+  color: var(--ink);
+  border-radius: 99px;
+  padding: 13px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color .16s ease, color .16s ease;
+}
+
+.ghostbtn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.ghostbtn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* --------------------------------------------------------------- speaking */
+
+.livetop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 0 0;
+  flex: none;
+}
+
+.rec-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.rec-dot i {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  display: block;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: .45; transform: scale(.82); }
+}
+
+.clock {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* Live speaker meter — carried from Concept B, recoloured into A's palette.
+   Its purpose is reassurance: it proves the mic is hearing her. */
+.speaker {
+  margin-top: 16px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 44px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rule);
+  flex: none;
+}
+
+/*
+   The bars are driven by the live microphone, not by a CSS animation.
+   Height is set in JS from real frequency energy, so a silent room shows a
+   flat row and loud speech fills it. No animation here on purpose: a timer
+   would move identically regardless of whether the mic worked.
+*/
+.speaker i {
+  flex: 1;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: .9;
+  min-height: 3px;
+  height: 3px;
+  align-self: flex-end;
+  /* Smooth the step between frames without hiding the real level. */
+  transition: height .06s linear;
+}
+
+.speaker i.soft { opacity: .32; }
+
+.speaker-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--faint);
+  flex: none;
+}
+
+.speaker-label .lv { color: var(--accent); }
+
+/* The transcript, styled like on-screen lyrics: newest bright, earlier
+   faded and slightly blurred. No "upcoming" region — the later words do not
+   exist yet, and inventing a dim future line would be showing words nobody
+   said. */
+.transcript {
+  flex: 1;
+  min-height: 90px;
+  margin-top: 14px;
+  overflow-y: auto;
+  position: relative;
+  line-height: 1.55;
+  scroll-behavior: smooth;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 44px, #000 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 44px, #000 100%);
+  scrollbar-width: none;
+  padding-top: 6px;
+}
+
+.transcript::-webkit-scrollbar { display: none; }
+.transcript.static { max-height: none; overflow: visible; mask-image: none; -webkit-mask-image: none; }
+
+.transcript .line {
+  display: block;
+  margin-bottom: 9px;
+  font-family: "Fraunces", Georgia, serif;
+  letter-spacing: -.2px;
+  transition: filter .35s ease, opacity .35s ease, color .35s ease, font-size .35s ease;
+}
+
+.transcript .line.current { font-size: 22px; font-weight: 600; color: var(--ink); }
+.transcript .line.past    { font-size: 17px; font-weight: 400; color: var(--faint); opacity: .62; filter: blur(.4px); }
+
+.transcript .filler {
+  color: var(--accent);
+  font-weight: 700;
+  background: var(--accent-soft);
+  border-radius: 5px;
+  padding: 0 4px;
+}
+
+.transcript-empty { color: var(--faint); font-style: italic; font-family: "Fraunces", Georgia, serif; font-size: 17px; }
+
+.metricstrip {
+  display: flex;
+  border-top: 1px solid var(--rule);
+  padding: 14px 0 2px;
+  flex: none;
+}
+
+.mcell { flex: 1; text-align: center; position: relative; min-width: 0; }
+
+.mcell + .mcell::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 4px; bottom: 4px;
+  width: 1px;
+  background: var(--rule);
+}
+
+.mval {
+  font-size: clamp(17px, 5.4vw, 21px);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.5px;
+}
+
+.mval.warn { color: var(--warn); }
+
+.mlbl {
+  font-size: 9px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coachtip {
+  background: #fdf3e7;
+  border-radius: 16px;
+  padding: 12px 14px;
+  margin: 12px 0 0;
+  display: flex;
+  gap: 10px;
+  flex: none;
+  align-items: flex-start;
+}
+
+.coachtip .sym {
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  margin-top: 1px;
+}
+
+.coachtip > div { min-width: 0; }
+
+.coachtip strong {
+  display: block;
+  font-size: 9.5px;
+  letter-spacing: .13em;
+  color: var(--accent-ink);
+  margin-bottom: 3px;
+}
+
+.coachtip p { font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); overflow-wrap: anywhere; }
+
+.hidden-arc { position: absolute; width: 0; height: 0; overflow: hidden; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.stops { margin: 14px 0 4px; display: flex; justify-content: center; gap: 16px; flex: none; }
+
+.stop {
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  border: 1.5px solid var(--rule);
+  background: #fff;
+  color: var(--ink);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: border-color .16s ease, transform .12s ease;
+}
+
+.stop svg { width: 17px; height: 17px; fill: currentColor; }
+.stop:hover { border-color: var(--faint); }
+.stop:active { transform: scale(.96); }
+.stopend { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.stop:disabled { opacity: .4; cursor: not-allowed; }
+
+/* ----------------------------------------------------------------- report */
+
+.rptitle { margin-top: 6px; }
+.rsub { font-size: 12.5px; color: var(--muted); margin-top: 6px; }
+
+.scorebar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--paper-2);
+  border-radius: var(--radius);
+  flex: none;
+}
+
+.scorewrap { position: relative; width: 84px; height: 84px; flex: none; }
+.scorewrap svg { width: 100%; height: 100%; }
+
+.scorenum {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -.5px;
+}
+
+.scoremeta { min-width: 0; }
+.scoremeta strong { display: block; font-size: 14px; margin-bottom: 3px; }
+.scoremeta p { font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); overflow-wrap: anywhere; }
+
+.rgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 14px;
+  flex: none;
+}
+
+.rcell {
+  background: var(--paper-2);
+  border-radius: 14px;
+  padding: 12px 6px;
+  text-align: center;
+  min-width: 0;
+}
+
+.rcell b {
+  display: block;
+  font-size: clamp(16px, 5vw, 19px);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.4px;
+}
+
+.rcell span {
+  display: block;
+  font-size: 8.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rnote { font-size: 11px; color: var(--faint); margin-top: 8px; text-align: center; flex: none; }
+
+.card {
+  margin-top: 14px;
+  background: #fff;
+  border-radius: 20px;
+  padding: 16px;
+  flex: none;
+}
+
+.cardhead {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 10px;
+}
+
+.cardnote { font-size: 11.5px; color: var(--muted); line-height: 1.5; margin-top: 8px; }
+
+.calmbtns { display: flex; gap: 8px; margin-top: 12px; }
+.calmbtns .ghostbtn { padding: 11px; font-size: 13px; }
+
+.calmphase {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--accent);
+  text-align: center;
+  margin: 14px 0 4px;
+}
+
+.calmtext { font-size: 13px; color: var(--ink-soft); text-align: center; line-height: 1.5; margin: 0; }
+
+.chatlog {
+  display: grid;
+  gap: 9px;
+  max-height: 44vh;
+  overflow-y: auto;
+  margin-bottom: 12px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chatlog:empty::before {
+  content: "Ask about your pace, fillers, freezes or nerves.";
+  color: var(--faint);
+  font-size: 12.5px;
+}
+
+.chatmsg {
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 11px 14px;
+  border-radius: 15px;
+  max-width: 90%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chatmsg.user { justify-self: end; background: var(--accent); color: #fff; border-bottom-right-radius: 5px; }
+.chatmsg.coach { justify-self: start; background: var(--paper-2); color: var(--ink); border-bottom-left-radius: 5px; }
+.chatmsg.pending { opacity: .6; font-style: italic; }
+
+.chatrow { display: flex; gap: 6px; align-items: stretch; }
+
+.chatrow input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 16px;             /* 16px stops iOS zooming on focus */
+  padding: 13px 15px;
+  border: 1.5px solid var(--rule);
+  border-radius: 14px;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.chatrow input:focus { outline: 2px solid rgba(194, 65, 12, .3); border-color: var(--accent); }
+
+.chatrow button {
+  font: inherit;
+  font-weight: 700;
+  padding: 13px 20px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  flex: none;
+}
+
+.chatrow button:disabled { opacity: .5; }
+
+/* Clearance for the floating chat button: a fixed element always covers the
+   bottom of whatever scrolls under it, so every screen's last row reserves
+   room for it rather than hoping a particular button avoids the corner. */
+.endbtns { display: flex; gap: 10px; margin-top: 16px; padding-bottom: 72px; flex: none; }
+
+/* --------------------------------------------------------------- progress */
+
+/* The signature progress object: a rising stair of sessions. Reads as
+   progress without needing to interpret a chart axis. */
+.stairs {
+  display: flex;
+  align-items: flex-end;
+  gap: 9px;
+  height: 132px;
+  margin-top: 22px;
+  flex: none;
+}
+
+.bar {
+  flex: 1;
+  border-radius: 8px 8px 3px 3px;
+  background: var(--rule);
+  position: relative;
+  min-height: 8px;
+  transition: background .2s ease;
+}
+
+.bar.mid { background: #fb923c; }
+.bar.hi { background: var(--accent); }
+
+.bar em {
+  position: absolute;
+  bottom: -20px;
+  left: 0; right: 0;
+  text-align: center;
+  font-size: 9px;
+  color: var(--faint);
+  font-weight: 600;
+  font-style: normal;
+}
+
+.stairs-note {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 700;
+  margin-top: 26px;
+  flex: none;
+}
+
+.delta {
+  margin-top: 20px;
+  background: var(--ink);
+  border-radius: 20px;
+  padding: 16px 18px;
+  color: var(--paper);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+
+.dlabel { min-width: 0; }
+.dlabel strong { display: block; font-size: 13px; margin-bottom: 2px; }
+.dlabel span { font-size: 11px; color: #c9bdb1; }
+
+.dnum {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: -1px;
+  color: #5eead4;
+  flex: none;
+}
+
+.sessionlist { margin-top: 18px; display: flex; flex-direction: column; flex: none; padding-bottom: 68px; }
+
+.srow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--rule);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.srow:last-child { border-bottom: 0; }
+.srow .n { font-weight: 600; color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srow .r { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+
+.pill {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  flex: none;
+}
+
+.pill.good { background: #d9f2e6; color: var(--good); }
+
+/* --------------------------------------------------------------- settings */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(37, 32, 27, .34);
+  z-index: 10;
+  display: none;
+}
+
+.scrim.open { display: block; }
+
+.sidebar {
+  position: fixed;
+  z-index: 11;
+  top: 0; right: 0;
+  width: min(90vw, 400px);
+  height: 100dvh;
+  background: var(--paper);
+  box-shadow: -18px 0 50px rgba(37, 32, 27, .22);
+  padding: 20px 20px calc(28px + env(safe-area-inset-bottom));
+  transform: translateX(105%);
+  transition: transform .26s ease;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sidebar.open { transform: none; }
+
+.sidehead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.sidehead h2 { font-family: "Fraunces", Georgia, serif; font-size: 22px; font-weight: 600; letter-spacing: -.4px; }
+
+.side-section { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--rule); }
+
+.side-section h3 {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  margin-bottom: 10px;
+}
+
+.field { margin-bottom: 14px; }
+
+.field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin-bottom: 6px;
+}
+
+.field input, .field select {
+  width: 100%;
+  font: inherit;
+  font-size: 16px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--rule);
+  border-radius: 13px;
+  background: #fff;
+  color: var(--ink);
+  appearance: none;
+}
+
+.field select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath fill='%238a7d72' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 38px;
+}
+
+.field input:focus, .field select:focus { outline: 2px solid rgba(194, 65, 12, .3); border-color: var(--accent); }
+
+.keywrap { display: flex; gap: 8px; }
+.keywrap input { flex: 1; min-width: 0; }
+
+.keywrap button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  padding: 0 14px;
+  border-radius: 13px;
+  border: 1.5px solid var(--rule);
+  background: var(--paper-2);
+  color: var(--ink-soft);
+  cursor: pointer;
+  flex: none;
+}
+
+.note { font-size: 11.5px; color: var(--muted); line-height: 1.55; margin-bottom: 10px; }
+
+.savebtn {
+  width: 100%;
+  margin-top: 24px;
+  border: 0;
+  border-radius: 99px;
+  padding: 16px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toast {
+  position: fixed;
+  z-index: 20;
+  bottom: calc(22px + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translate(-50%, 18px);
+  opacity: 0;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 99px;
+  padding: 11px 18px;
+  font-size: 12.5px;
+  font-weight: 650;
+  transition: .22s ease;
+  pointer-events: none;
+  white-space: nowrap;
+  max-width: 90vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Shown only when index.html is opened from disk. */
+.offline-banner {
+  background: #fdf3e7;
+  border-bottom: 2px solid var(--accent);
+  color: var(--accent-ink);
+  padding: 12px 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.offline-banner code {
+  background: rgba(0, 0, 0, .06);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* ------------------------------------------------------------ small tweaks */
+
+@media (max-width: 380px) {
+  .app { padding-left: 16px; padding-right: 16px; }
+  .stage { padding: 18px 16px; }
+  .stage h2 { font-size: 19px; }
+  .transcript .line.current { font-size: 19px; }
+  .transcript .line.past { font-size: 15px; }
+  .rgrid { grid-template-columns: repeat(2, 1fr); }
+  .mlbl { font-size: 8px; letter-spacing: .04em; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .transcript .line.past { filter: none; opacity: .72; }
+  /* The meter is data, not decoration: keep it, only stop the transition. */
+  .speaker i { transition: none; }
+}
+
+/* ==========================================================================
+   Additions from the feature pass
+   ========================================================================== */
+
+/* Practice passage — collapsed by default so the home screen stays calm. */
+.passage {
+  margin-top: 16px;
+  border-top: 1px solid var(--rule);
+  padding-top: 14px;
+  flex: none;
+}
+
+.passage summary {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--ink-soft);
+  cursor: pointer;
+  list-style: none;
+}
+
+.passage summary::-webkit-details-marker { display: none; }
+.passage summary::before { content: "＋ "; color: var(--accent); font-weight: 700; }
+.passage[open] summary::before { content: "− "; }
+.passage .dim { color: var(--faint); font-weight: 500; }
+
+.passage textarea {
+  width: 100%;
+  margin-top: 10px;
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  padding: 12px 14px;
+  border: 1.5px solid var(--rule);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--ink);
+  resize: vertical;
+  min-height: 84px;
+}
+
+.passage textarea:focus { outline: 2px solid rgba(194, 65, 12, .3); border-color: var(--accent); }
+
+/* The passage shown during speaking: readable, but clearly not the live text. */
+.passageview {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--paper-2);
+  border-left: 3px solid var(--accent);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  max-height: 96px;
+  overflow-y: auto;
+  flex: none;
+  white-space: pre-wrap;
+}
+
+.passageview .phead {
+  display: block;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+  margin-bottom: 5px;
+}
+
+/* Second comparison card: best pace achieved, not just the latest. */
+.delta.best { margin-top: 10px; background: var(--paper-2); color: var(--ink); }
+.delta.best .dlabel strong { font-family: "Fraunces", Georgia, serif; font-size: 22px; font-weight: 900; }
+.delta.best .dlabel span { color: var(--muted); }
+.delta.best .bestnum {
+  color: var(--accent-ink);
+  font-size: 11px;
+  letter-spacing: .14em;
+  font-weight: 800;
+}
+
+/* ==========================================================================
+   Heatmap, achievements, roadmap
+   All three read measured session data. Colours indicate MEASUREMENTS
+   (pace, fillers, pauses, volume), never mood.
+   ========================================================================== */
+
+.heatmap {
+  display: flex;
+  gap: 2px;
+  height: 54px;
+  margin: 12px 0 10px;
+  align-items: stretch;
+}
+
+.hcell {
+  flex: 1;
+  min-width: 3px;
+  border-radius: 3px;
+  background: var(--rule);
+  cursor: pointer;
+  transition: transform .12s ease, outline-color .12s ease;
+  outline: 2px solid transparent;
+}
+
+.hcell:hover { transform: scaleY(1.08); }
+.hcell.sel { outline-color: var(--ink); }
+
+.hcell.fast    { background: #c2410c; }
+.hcell.slow    { background: #93c5fd; }
+.hcell.fillers { background: #fbbf24; }
+.hcell.pause   { background: #a99c90; }
+.hcell.quiet   { background: #d6cdc2; }
+
+.heatlegend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 10.5px;
+  color: var(--faint);
+  margin-bottom: 6px;
+}
+
+.heatlegend .sw {
+  display: inline-block;
+  width: 9px; height: 9px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.heatlegend .sw.fast { background: #c2410c; }
+.heatlegend .sw.slow { background: #93c5fd; }
+.heatlegend .sw.fillers { background: #fbbf24; }
+.heatlegend .sw.pause { background: #a99c90; }
+.heatlegend .sw.quiet { background: #d6cdc2; }
+
+/* Achievements */
+.achv { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 10px; }
+
+.badge {
+  font-size: 11.5px;
+  font-weight: 650;
+  padding: 6px 11px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.badge.locked {
+  background: transparent;
+  border: 1px dashed var(--rule);
+  color: var(--faint);
+  font-weight: 500;
+}
+
+.recordrow { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.rec {
+  flex: 1;
+  min-width: 88px;
+  background: var(--paper-2);
+  border-radius: 12px;
+  padding: 10px;
+  text-align: center;
+}
+
+.rec b {
+  display: block;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 19px;
+  font-weight: 900;
+  letter-spacing: -.4px;
+}
+
+.rec span {
+  font-size: 9px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* Roadmap */
+.roadmap { display: grid; gap: 10px; margin-top: 4px; }
+
+.rtask {
+  border-left: 3px solid var(--accent);
+  padding: 2px 0 2px 12px;
+}
+
+.rtask h4 {
+  font-size: 13.5px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.rtask .why { font-size: 11.5px; color: var(--accent-ink); margin-bottom: 4px; }
+.rtask .drill { font-size: 12.5px; color: var(--ink-soft); line-height: 1.5; }
+.rtask .mins { font-size: 10.5px; color: var(--faint); margin-top: 4px; font-weight: 650; }
+
+/* Before / after comparison rows. Each shows both values and the direction,
+   with "improved" defined against the target band rather than raw size. */
+.cmp { display: grid; gap: 8px; margin-top: 6px; }
+
+.cmprow {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.cmprow:last-child { border-bottom: 0; }
+.cmprow .cl { color: var(--ink-soft); }
+.cmprow .cb { font-variant-numeric: tabular-nums; color: var(--faint); }
+.cmprow .ca { font-variant-numeric: tabular-nums; font-weight: 800; }
+.cmprow .cd { font-size: 11px; font-weight: 800; }
+.cmprow .cd.up { color: var(--good); }
+.cmprow .cd.down { color: var(--accent); }
+.cmprow .cd.flat { color: var(--faint); }
+
+/* Audience simulator — an authored question, large enough to read while
+   standing up, with no implication that the answer is graded. */
+.audq {
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 16px;
+  padding: 18px 16px;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 18px;
+  line-height: 1.4;
+  letter-spacing: -.2px;
+  margin: 10px 0;
+  min-height: 70px;
+  display: flex;
+  align-items: center;
+}
+
+/* Microphone check on the home screen. Same real meter as the session, shown
+   before recording starts so a muted mic is discovered in advance. */
+.miccheck {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+  flex: none;
+}
+
+.miccheck-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.miccheck-state { color: var(--accent-ink); text-transform: none; letter-spacing: .02em; font-size: 11.5px; }
+
+.speaker-home {
+  margin-top: 10px;
+  height: 38px;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.miccheck-btn { margin-top: 10px; padding: 11px; font-size: 13px; }
+
+/* ==========================================================================
+   BEFORE THE SPOTLIGHT — icon-led and softer
+   Cream and sage, generous rounding, no red anywhere. Actions are symbols
+   first and words second: a nervous student should find the next thing to
+   do without reading a paragraph.
+   ========================================================================== */
+
+.screen.calm {
+  background: linear-gradient(180deg, #f8f6f0 0%, #f2f0e8 100%);
+  border-radius: 22px;
+  padding: 24px 18px 20px;
+  margin: -6px -4px 0;
+}
+
+.spot-head { margin-bottom: 20px; }
+
+.spot-eyebrow {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #6f9c8b;
+}
+
+.spot-title {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(30px, 9.5vw, 38px);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -.9px;
+  margin-top: 9px;
+  color: #24302a;
+}
+
+.spot-title em { font-style: italic; color: #3f7d68; }
+
+/* Three big symbols. Square-ish, soft, thumb-sized. */
+.spot-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid #e6ece8;
+  border-radius: 22px;
+  padding: 18px 8px 15px;
+  font-family: inherit;
+  color: #33413c;
+  cursor: pointer;
+  min-height: 116px;
+  transition: border-color .18s ease, transform .16s ease, box-shadow .18s ease;
+  box-shadow: 0 2px 0 rgba(63, 125, 104, .04);
+}
+
+.tile:hover {
+  border-color: #c9ddd4;
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px -14px rgba(63, 125, 104, .5);
+}
+
+.tile:active { transform: none; }
+
+.tile svg {
+  width: 30px;
+  height: 30px;
+  stroke: #3f7d68;
+  fill: none;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.tile span { font-size: 12.5px; font-weight: 700; letter-spacing: -.1px; }
+.tile small { font-size: 9.5px; color: #93a59d; font-weight: 600; letter-spacing: .02em; }
+
+/* Cards */
+.spot-card {
+  background: #fff;
+  border: 1px solid #e6ece8;
+  border-radius: 20px;
+  padding: 15px;
+  margin-top: 12px;
+}
+
+.spot-cardhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.spot-cardhead strong { font-size: 12.5px; color: #24302a; }
+.spot-cardhead span {
+  font-size: 8.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: #93a59d;
+  font-weight: 700;
+}
+
+.spot-note { font-size: 12px; line-height: 1.5; color: #4c5b55; margin: 0; }
+.spot-btns { display: flex; gap: 8px; margin-top: 11px; }
+.spot-btns .ghostbtn { flex: 1; padding: 11px; font-size: 12.5px; border-radius: 13px; }
+
+.spot-btns input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 16px;
+  padding: 10px 13px;
+  border: 1.5px solid #e0e8e3;
+  border-radius: 13px;
+  background: #fbfcfa;
+  color: #24302a;
+}
+
+.spot-btns input:focus { outline: 2px solid rgba(63, 125, 104, .28); border-color: #3f7d68; }
+
+/* Breathing orb */
+.spot-orb {
+  width: min(168px, 48vw);
+  height: min(168px, 48vw);
+  margin: 6px auto 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 38% 32%, #cdeade, #93cbb6 55%, #74b79e);
+  box-shadow: 0 18px 38px -18px rgba(63, 125, 104, .55);
+  transition: transform 1.1s cubic-bezier(.4, 0, .5, 1);
+}
+
+.spot-orb.inhale { transform: scale(1.11); }
+.spot-orb.exhale { transform: scale(.9); }
+
+.spot-count {
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 42px;
+  font-weight: 900;
+  color: #17443a;
+  line-height: 1;
+  text-align: center;
+}
+
+.spot-phase {
+  font-size: 9px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #2c6152;
+  font-weight: 800;
+  text-align: center;
+  margin-top: 3px;
+}
+
+/* Grounding dots */
+.spot-dots { display: flex; gap: 6px; margin-bottom: 10px; }
+.spot-dots i { flex: 1; height: 6px; border-radius: 4px; background: #e8eeea; }
+.spot-dots i.on { background: #3f7d68; }
+
+/* Checklist: icon + word only */
+.spot-checklist { display: grid; gap: 4px; }
+
+.spot-check {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  font-size: 12.5px;
+  line-height: 1.3;
+  color: #3f4d47;
+  background: none;
+  border: 0;
+  padding: 9px 2px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  border-radius: 10px;
+  transition: background .14s ease;
+}
+
+.spot-check:hover { background: #f7faf8; }
+
+.spot-check .box {
+  width: 19px; height: 19px;
+  border-radius: 7px;
+  border: 1.6px solid #cfdcd6;
+  flex: none;
+  position: relative;
+  transition: background .16s ease, border-color .16s ease;
+}
+
+.spot-check.done .box { background: #3f7d68; border-color: #3f7d68; }
+
+.spot-check.done .box::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  color: #fff;
+  font-size: 11px;
+  display: grid;
+  place-items: center;
+}
+
+.spot-check.done { color: #93a59d; }
+
+.spot-card.reminder { background: #eef5f1; border-color: #d8e6df; }
+
+/* Home entry point */
+.spotlink {
+  border-color: #d8e6df;
+  color: #3f7d68;
+  margin-bottom: 10px;
+}
+
+.spotlink:hover { border-color: #3f7d68; color: #3f7d68; }
+
+@media (max-width: 360px) {
+  .spot-tiles { gap: 8px; }
+  .tile { min-height: 104px; padding: 15px 5px 12px; border-radius: 18px; }
+  .tile svg { width: 26px; height: 26px; }
+  .tile span { font-size: 11.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spot-orb { transition: none; }
+  .tile:hover { transform: none; }
+}
+
+/* ==========================================================================
+   FLOATING CHATBOT
+   One assistant, reachable from every screen. Positioned above the safe area
+   and within thumb reach on a phone; it never covers the primary button on
+   the home screen because that button sits in normal flow, not under it.
+   ========================================================================== */
+
+.chat-fab {
+  position: fixed;
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 30;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 12px 28px -10px rgba(194, 65, 12, .75);
+  transition: transform .16s ease, box-shadow .18s ease;
+}
+
+.chat-fab:hover { transform: translateY(-2px); box-shadow: 0 16px 34px -10px rgba(194, 65, 12, .85); }
+.chat-fab:active { transform: none; }
+.chat-fab svg { width: 24px; height: 24px; fill: none; stroke: #fff; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* A small mark that means "there is something here", not a count. */
+.chat-fab-dot {
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  background: #fbbf24;
+  border: 2px solid var(--paper);
+}
+
+/* Panel: a bottom sheet on a phone, a floating card on a desktop. */
+.chat-panel {
+  position: fixed;
+  z-index: 31;
+  right: calc(16px + env(safe-area-inset-right));
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  width: min(380px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 22px;
+  padding: 16px;
+  display: none;
+  flex-direction: column;
+  box-shadow: 0 26px 60px -20px rgba(37, 32, 27, .45);
+}
+
+.chat-panel.open { display: flex; }
+
+.chat-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.chat-panel-head strong { display: block; font-size: 14px; }
+.chat-panel-head span { display: block; font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+
+.chat-close {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--rule);
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--muted);
+  flex: none;
+}
+
+.chat-close svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; }
+
+/* The log scrolls inside the panel; the input stays put. */
+.chat-panel .chatlog {
+  flex: 1;
+  min-height: 90px;
+  max-height: none;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 460px) {
+  .chat-panel {
+    left: calc(8px + env(safe-area-inset-left));
+    right: calc(8px + env(safe-area-inset-right));
+    width: auto;
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    max-height: 72vh;
+  }
+  .chat-fab { width: 52px; height: 52px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-fab:hover { transform: none; }
+}
+
+/* ==========================================================================
+   CHAT FILE ATTACHMENT
+   Text files are read in the browser and sent as context. Binary files are
+   refused with a clear reason rather than silently producing nonsense.
+   ========================================================================== */
+
+.chat-files { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.chat-files:empty { display: none; }
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel-3, #f2ece3);
+  border: 1px solid var(--rule);
+  border-radius: 99px;
+  padding: 5px 8px 5px 11px;
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  max-width: 100%;
+}
+
+.chip .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+
+.chip .meta { color: var(--muted); font-size: 10px; }
+
+.chip button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.chip button:hover { color: var(--accent); }
+
+.chat-attach {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: auto;
+  align-self: stretch;
+  border-radius: 12px;
+  border: 1.5px solid var(--rule);
+  background: var(--paper-2);
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+  transition: border-color .16s ease, color .16s ease;
+}
+
+.chat-attach:hover { border-color: var(--accent); color: var(--accent); }
+.chat-attach svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ==========================================================================
+   WAI-229: start-screen choice, script reading view, review card
+   ========================================================================== */
+
+.mode { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 4px; }
+
+.modecard {
+  display: flex; flex-direction: column; gap: 5px; align-items: flex-start;
+  text-align: left; padding: 14px 14px 15px; border-radius: 16px;
+  border: 1.5px solid var(--rule); background: var(--paper-2); cursor: pointer;
+  transition: border-color .18s ease, background .18s ease, transform .18s ease;
+  font: inherit; color: inherit;
+}
+
+.modecard strong {
+  font-family: "Fraunces", Georgia, serif; font-size: 15px; font-weight: 800;
+  letter-spacing: -.01em;
+}
+
+.modecard span { font-size: 11.5px; line-height: 1.45; color: var(--muted); }
+.modecard:hover { border-color: var(--accent); transform: translateY(-1px); }
+.modecard.active { border-color: var(--accent); background: var(--accent-soft, #fff4ec); }
+.modecard.active span { color: var(--ink-soft); }
+
+.scriptprep {
+  margin: 12px 0 0; padding: 14px; border-radius: 16px;
+  background: var(--paper-2); border: 1px solid var(--rule);
+}
+
+.scriptprep-row { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; margin: 10px 0; }
+.filepick { display: inline-flex; align-items: center; cursor: pointer; }
+
+.scriptprep textarea {
+  width: 100%; border: 1.5px solid var(--rule); border-radius: 12px;
+  padding: 11px 12px; font: inherit; font-size: 13px; line-height: 1.5;
+  background: #fff; color: var(--ink); resize: vertical; min-height: 84px;
+}
+
+.scriptprep textarea:focus { outline: 2px solid rgba(194, 65, 12, .3); border-color: var(--accent); }
+
+/* The honest limit. Never hidden, never styled away. */
+.scriptlimit { font-size: 11.5px; line-height: 1.5; color: var(--muted); margin: 8px 0 0; }
+.scriptlimit.is-error {
+  color: #9a3412; background: #fff4ec; border-left: 3px solid var(--accent);
+  padding: 8px 10px; border-radius: 8px;
+}
+
+.scriptprep .record { margin-top: 0; }
+.scriptprep .record[disabled] { opacity: .45; cursor: not-allowed; }
+
+.scriptview {
+  margin-top: 10px; border-radius: 16px; background: var(--paper-2);
+  border-left: 3px solid var(--accent); overflow: hidden; flex: none;
+  max-height: 210px; display: flex; flex-direction: column;
+}
+
+.scriptview-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 13px 0; }
+
+.scriptview-head .phead {
+  font-size: 9px; font-weight: 800; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--accent-ink);
+}
+
+.ghostbtn.tiny { padding: 3px 9px; font-size: 10px; border-radius: 8px; }
+
+.teleprompter {
+  position: relative; overflow-y: auto; padding: 10px 16px 20px;
+  scroll-behavior: smooth;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 78%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12px, #000 78%, transparent 100%);
+}
+
+.teleprompter-text {
+  font-family: "Fraunces", Georgia, serif; font-size: 17px; line-height: 1.62;
+  color: var(--ink); white-space: pre-wrap; word-break: break-word;
+}
+
+.teleprompter-text .tline {
+  display: block; opacity: .55; transform: translateY(3px);
+  transition: opacity .5s ease, transform .5s ease;
+}
+
+.teleprompter-text .tline.is-current { opacity: 1; transform: translateY(0); }
+.teleprompter-text .tline.is-past { opacity: .32; }
+
+/* R6: words the student did not say. Marked, never hidden. */
+.teleprompter-text mark.skipped {
+  background: #ffe9d6; color: #9a3412; border-radius: 3px; padding: 0 1px;
+  text-decoration: underline wavy #c2410c 1px; text-underline-offset: 3px;
+}
+
+.scriptview-note { padding: 0 16px 12px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+.reviewcard { border-left: 3px solid var(--accent); }
+.reviewbody { font-size: 13.5px; line-height: 1.62; color: var(--ink-soft); }
+.reviewbody p { margin: 0 0 8px; }
+.reviewbody p:last-child { margin-bottom: 0; }
+.reviewpending { color: var(--muted); font-style: italic; }
+.reviewerror { color: #9a3412; }
+
+@media (max-width: 420px) {
+  .mode { grid-template-columns: 1fr; }
+  .teleprompter-text { font-size: 16px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modecard, .teleprompter-text .tline { transition: none; }
+  .teleprompter { scroll-behavior: auto; }
+  .modecard:hover { transform: none; }
+}
+
+/* Right-to-left pages (Arabic). Figures such as "<5%", "00:12" or "-30"
+   keep their own order instead of being flipped by the surrounding text. */
+[dir="rtl"] .stage-meta b,
+[dir="rtl"] .mval,
+[dir="rtl"] .rcell b,
+[dir="rtl"] .scorenum,
+[dir="rtl"] .dnum,
+[dir="rtl"] .clock,
+[dir="rtl"] .cmp span,
+[dir="rtl"] .rec b {
+  unicode-bidi: plaintext;
+}

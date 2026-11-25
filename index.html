@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#faf6f0">
+<title>PRESENCE AI — pacing coach</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<main class="app" id="presenceApp">
+
+  <header class="topbar">
+    <div class="brandmark">
+      <div class="mark" aria-hidden="true"></div>
+      <span class="brandname" data-no-i18n>PRESENCE</span>
+    </div>
+    <button class="iconbtn" id="openSidebar" aria-label="Open settings" aria-controls="sidebar" aria-expanded="false">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-4l-.3 2.6a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L6 11a7 7 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 2.6h4l.3-2.6a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6a7 7 0 0 0 .1-1z"/></svg>
+    </button>
+  </header>
+
+  <!-- ================================================== 1. HOME -->
+  <section class="screen active" id="readyScreen" data-screen="ready" aria-label="Ready to practice">
+    <div class="greet">
+      <div class="eyebrow" id="micStatus">Ready when you are</div>
+      <h1 data-i18n-html>Let your voice<br>do the <em>talking.</em></h1>
+    </div>
+
+    <div class="stage">
+      <div class="stage-label">Today’s focus</div>
+      <h2>Let your sentences land before the next one starts.</h2>
+      <div class="stage-meta">
+        <div><b data-bind="targetWpm">118</b>target wpm</div>
+        <div><b>&lt;5%</b>fillers</div>
+        <div><b>30s</b>minimum</div>
+      </div>
+    </div>
+
+    <!-- Practice passage. Optional: the student can paste the text they will
+         read, so the transcript can be compared against what was intended.
+         Empty means free speech, which is the default. -->
+    <div class="mode" role="radiogroup" aria-label="How do you want to practise?">
+      <button class="modecard active" id="modeImprovise" role="radio" aria-checked="true" data-mode="improvise" type="button">
+        <strong>Improvise</strong>
+        <span>Speak freely. The coach measures pace, fillers and pauses.</span>
+      </button>
+      <button class="modecard" id="modeScript" role="radio" aria-checked="false" data-mode="script" type="button">
+        <strong>Prepare a script</strong>
+        <span>Bring your notes. We write the words you will read.</span>
+      </button>
+    </div>
+    <div class="scriptprep" id="scriptPrep" hidden>
+      <p class="cardnote">Upload your notes or paste them. We turn them into a script you can read from.</p>
+      <div class="scriptprep-row">
+        <label class="ghostbtn filepick" for="scriptFile">Choose a file</label>
+        <input id="scriptFile" type="file" accept=".txt,.md,text/plain,text/markdown" hidden>
+        <button class="ghostbtn" id="scriptPasteBtn" type="button">Or paste notes</button>
+      </div>
+      <p class="scriptlimit" id="scriptLimit" data-i18n-html>
+        We can read <strong>.txt</strong> and <strong>.md</strong>. A presentation
+        file (PowerPoint, PDF, Word) needs a text export first — this app has no
+        document parser, and will not pretend otherwise.
+      </p>
+      <textarea id="scriptSource" rows="4" placeholder="Paste your presentation notes here…" hidden></textarea>
+      <div class="scriptprep-row">
+        <button class="record" id="scriptMakeBtn" type="button" disabled>
+          Turn these notes into a script
+        </button>
+      </div>
+      <p class="cardnote" id="scriptStatus"></p>
+      <p class="scriptlimit" id="scriptError" hidden></p>
+    </div>
+
+    <!-- Microphone check before recording.
+         The live meter only existed on the speaking screen, so a student
+         discovered a broken or muted mic only AFTER pressing start. This
+         puts the same measurement on the home screen, idle and honest. -->
+    <div class="miccheck">
+      <div class="miccheck-row">
+        <span class="miccheck-label">Microphone</span>
+        <span class="miccheck-state" id="homeMicState">tap to check</span>
+      </div>
+      <div class="speaker speaker-home" id="homeWaveform" aria-label="Microphone level" role="img"></div>
+      <button class="ghostbtn miccheck-btn" id="micCheckBtn">Check my microphone</button>
+    </div>
+
+    <button class="record" id="startBtn">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/><path d="M5 10v1a7 7 0 0 0 14 0v-1" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+      Start speaking
+    </button>
+
+    <div class="targets">
+      <div class="targets-head">Your settings</div>
+      <button class="trow asbtn" id="languageQuick">
+        <span>Language</span>
+        <span id="languageLabel" data-no-i18n>English</span>
+      </button>
+      <div class="trow"><span>Target pace</span><span data-bind="targetWpm">118 wpm</span></div>
+      <div class="trow"><span>Cohere transcription</span><span class="dim" id="homeKeyState">—</span></div>
+    </div>
+
+    <div class="homerow">
+      <button class="ghostbtn spotlink" id="spotlightBtn">Before the spotlight</button>
+      <button class="ghostbtn" id="progressBtn">View progress</button>
+    </div>
+  </section>
+
+  <!-- ================================================== 2. SPEAKING -->
+  <section class="screen" id="liveScreen" data-screen="live" aria-label="Speaking practice">
+    <div class="livetop">
+      <span class="rec-dot"><i></i><span id="audioState">Listening</span></span>
+      <span class="clock" id="sessionTimer">00:00</span>
+    </div>
+
+    <!-- The live speaker meter, carried from Concept B and recoloured for A.
+         Its job: prove the microphone is actually hearing the student. -->
+    <div class="speaker" id="waveform" aria-label="Microphone level" role="img" aria-description="Live microphone level">
+      <!-- Bars are created in JS from the live analyser. Empty here so
+           there is never a moment showing fake heights. -->
+    </div>
+    <div class="speaker-label">
+      <span>Microphone</span>
+      <span class="lv" id="micLive">starting…</span>
+    </div>
+
+    <!-- The transcript. Lyric-style: newest line bright, earlier faded. -->
+    <div class="transcript" id="transcriptPanel" data-transcript data-no-i18n aria-live="polite">
+      <span class="transcript-empty">Listening…</span>
+    </div>
+
+    <div class="metricstrip">
+      <div class="mcell"><div class="mval" id="liveWpm">—</div><div class="mlbl">WPM</div></div>
+      <div class="mcell"><div class="mval" id="fillerRate">—</div><div class="mlbl">Fillers</div></div>
+      <div class="mcell"><div class="mval" id="pauseRate">—</div><div class="mlbl">Pauses</div></div>
+      <div class="mcell"><div class="mval" id="voicePercent">—</div><div class="mlbl">Level</div></div>
+      <div class="mcell"><div class="mval" id="liveSteady">—</div><div class="mlbl">Steady</div></div>
+    </div>
+
+    <div class="coachtip">
+      <span class="sym">!</span>
+      <div>
+        <strong id="feedbackTitle">AI COACH</strong>
+        <p id="feedbackText">Your live tip will appear here.</p>
+      </div>
+    </div>
+
+    <!-- The pace arc is kept for the report screen's gauge semantics. -->
+    <svg class="hidden-arc" aria-hidden="true" viewBox="0 0 220 142">
+      <path id="paceArc" d="M22 122 A92 92 0 0 1 198 122" fill="none" stroke="#c2410c"
+            stroke-width="13" stroke-linecap="round" pathLength="100" stroke-dasharray="0 100"/>
+    </svg>
+    <p class="sr-only" id="paceStatus" aria-live="polite">Waiting for speech</p>
+
+    <div class="scriptview" id="scriptView" hidden aria-live="off">
+      <div class="scriptview-head">
+        <span class="phead">Your script</span>
+        <button class="ghostbtn tiny" id="scriptViewToggle" type="button" aria-expanded="true">Hide</button>
+      </div>
+      <div class="teleprompter" id="teleprompterBox">
+        <div class="teleprompter-text" id="teleprompterText" data-no-i18n></div>
+      </div>
+      <p class="scriptview-note" id="scriptViewNote" hidden></p>
+    </div>
+
+    <div class="stops">
+      <button class="stop" id="pauseBtn" aria-label="Pause session">
+        <svg viewBox="0 0 24 24"><rect x="8" y="6" width="3" height="12" rx="1"/><rect x="14" y="6" width="3" height="12" rx="1"/></svg>
+      </button>
+      <button class="stop stopend" id="endBtn" aria-label="End session">
+        <svg viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="1.5"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- ================================================== 3. REPORT -->
+  <section class="screen" id="reportScreen" data-screen="report" aria-label="Session report">
+    <div class="eyebrow">Session complete</div>
+    <h1 class="rptitle" id="reportTitle">Nice work.</h1>
+
+    <div class="scorebar">
+      <div class="scorewrap">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="50" fill="none" stroke="#e8dfd4" stroke-width="9"/>
+          <circle id="scoreArc" cx="60" cy="60" r="50" fill="none" stroke="#c2410c"
+                  stroke-width="9" stroke-linecap="round" pathLength="100"
+                  stroke-dasharray="0 100" transform="rotate(-90 60 60)"/>
+        </svg>
+        <div class="scorenum" id="overallScore">0%</div>
+      </div>
+      <div class="scoremeta">
+        <strong id="reportFeedbackTitle">—</strong>
+        <p id="reportFeedback">—</p>
+      </div>
+    </div>
+
+    <div class="rgrid">
+      <div class="rcell"><b id="finalWpm">—</b><span>AVG WPM</span></div>
+      <div class="rcell"><b id="finalFillers">—</b><span>FILLER RATE</span></div>
+      <div class="rcell"><b id="finalPauses">—</b><span>PAUSES</span></div>
+      <div class="rcell"><b id="finalVoice">—</b><span>VOICE LEVEL</span></div>
+      <div class="rcell"><b id="finalSteady">—</b><span>VOICE STEADINESS</span></div>
+    </div>
+    <p class="rnote" id="reportWpm">—</p>
+
+    <div class="card reviewcard">
+      <div class="cardhead">YOUR COACH'S REVIEW</div>
+      <div class="reviewbody" id="reviewBody">
+        <p class="reviewpending" id="reviewPending">Reading your numbers…</p>
+      </div>
+      <p class="cardnote" id="reviewSource"></p>
+    </div>
+
+    <div class="card">
+      <div class="cardhead">WHAT YOU SAID</div>
+      <div class="transcript static" id="reportTranscript" data-no-i18n>
+        <span class="transcript-empty">No transcript yet.</span>
+      </div>
+      <p class="cardnote" id="transcriptSource"></p>
+    </div>
+
+    <div class="card">
+      <div class="cardhead">FEELING NERVOUS?</div>
+      <p class="cardnote">Presenting in a second language is stressful. This is a slow reset — breathing, not advice.</p>
+      <div class="calmbtns">
+        <button class="ghostbtn" id="calmBtn">Breathe with me</button>
+        <button class="ghostbtn" id="calmStopBtn" disabled>Stop</button>
+      </div>
+      <p class="calmphase" id="calmPhase" hidden></p>
+      <p class="calmtext" id="calmText" hidden></p>
+    </div>
+
+    <div class="card">
+      <div class="cardhead">AUDIENCE SIMULATOR</div>
+      <p class="cardnote">A judge asks. You answer out loud. The tool measures how you delivered it — not whether the answer was right.</p>
+      <div class="audq" id="audienceQuestion">Press for a question.</div>
+      <div class="calmbtns">
+        <button class="ghostbtn" id="audienceBtn">Ask me a question</button>
+      </div>
+      <p class="cardnote" id="audienceNote"></p>
+    </div>
+
+    <!-- The chat itself lives in the floating panel so it is reachable from
+         every screen. This card is the report-screen shortcut to it. -->
+    <div class="card">
+      <div class="cardhead">ASK THE COACH</div>
+      <p class="cardnote">Questions about your numbers, your nerves, or what to fix first.</p>
+      <div class="calmbtns">
+        <button class="ghostbtn" id="openChatFromReport">Open the coach</button>
+      </div>
+    </div>
+
+    <div class="endbtns">
+      <button class="ghostbtn" id="againBtn">Practise again</button>
+      <button class="ghostbtn" id="reportProgressBtn">See progress</button>
+      <button class="ghostbtn" id="exportBtn">Save result</button>
+    </div>
+  </section>
+
+  <!-- ================================================== 4. PROGRESS -->
+  <section class="screen" id="progressScreen" data-screen="progress" aria-label="Progress across sessions">
+    <div class="eyebrow">Your history</div>
+    <h1 class="rptitle">You are climbing.</h1>
+    <p class="rsub">Every session is kept. This is why a page beats a chat window.</p>
+
+    <div class="stairs" id="stairs"></div>
+    <div class="stairs-note"><span>earlier</span><span>latest</span></div>
+
+    <div class="delta">
+      <div class="dlabel"><strong id="deltaTitle">No sessions yet</strong><span>against your own target</span></div>
+      <div class="dnum" id="deltaNum">—</div>
+    </div>
+
+    <div class="delta best">
+      <div class="dlabel"><strong id="bestPace">—</strong><span id="bestPaceLabel">no sessions yet</span></div>
+      <div class="dnum bestnum">BEST</div>
+    </div>
+
+    <!-- Before / after: the last two sessions side by side. -->
+    <div class="card">
+      <div class="cardhead">BEFORE &amp; AFTER</div>
+      <p class="cardnote" id="compareNote">Comparing your two most recent sessions.</p>
+      <div class="cmp" id="compare"></div>
+    </div>
+
+    <!-- Speech heatmap: one cell per second of the last session. -->
+    <div class="card">
+      <div class="cardhead">WHERE IT HAPPENED</div>
+      <p class="cardnote" id="heatmapNote">Your last session, second by second. Tap a band to read what happened there.</p>
+      <div class="heatmap" id="heatmap"></div>
+      <div class="heatlegend">
+        <span><i class="sw fast"></i>fast</span>
+        <span><i class="sw slow"></i>slow</span>
+        <span><i class="sw fillers"></i>fillers</span>
+        <span><i class="sw pause"></i>pause</span>
+        <span><i class="sw quiet"></i>quiet</span>
+      </div>
+      <p class="cardnote" id="heatDetail"></p>
+    </div>
+
+    <!-- Achievements and personal records. -->
+    <div class="card">
+      <div class="cardhead">ACHIEVEMENTS</div>
+      <div class="achv" id="achievements"></div>
+      <div class="recordrow" id="records"></div>
+    </div>
+
+    <!-- Training roadmap from the latest session's measured weaknesses. -->
+    <div class="card">
+      <div class="cardhead">YOUR TRAINING PLAN</div>
+      <p class="cardnote" id="roadmapNote"></p>
+      <div class="roadmap" id="roadmap"></div>
+    </div>
+
+    <div class="sessionlist" id="sessionList">
+      <p class="cardnote">No sessions recorded yet. Your first one will appear here.</p>
+    </div>
+
+    <div class="endbtns">
+      <button class="ghostbtn" id="progressBackBtn">Back</button>
+    </div>
+  </section>
+
+  <!-- ============================================ 5. BEFORE THE SPOTLIGHT
+
+       A calmer room: cream and sage, slower motion, nothing scored.
+       Icon-led by design: a nervous student should not have to read a page
+       to find the next thing to do, so each action is a symbol first and a
+       word second. Every bound id from the previous version is preserved. -->
+  <section class="screen calm" id="spotlightScreen" data-screen="spotlight"
+           aria-label="Before the spotlight">
+
+    <div class="spot-head">
+      <div class="spot-eyebrow">Before the spotlight</div>
+      <h1 class="spot-title" data-i18n-html>Breathe.<br><em>You’re ready.</em></h1>
+    </div>
+
+    <!-- Three large symbols, not three rows of text. -->
+    <div class="spot-tiles">
+      <button class="tile" id="breatheBtn" aria-label="Breathe with me">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/>
+        </svg>
+        <span>Breathe</span>
+        <small>4 · 2 · 6</small>
+      </button>
+
+      <button class="tile" id="groundBtn" aria-label="Ground yourself">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v18M3 12h18M6 6l12 12M18 6L6 18"/>
+        </svg>
+        <span>Ground</span>
+        <small>5-4-3-2-1</small>
+      </button>
+
+      <button class="tile" id="confidenceBtn" aria-label="Say one sentence">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 2a3 3 0 0 1 3 3v6a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3z"/>
+          <path d="M5 11v1a7 7 0 0 0 14 0v-1"/>
+        </svg>
+        <span>Say it</span>
+        <small>2 min</small>
+      </button>
+    </div>
+
+    <!-- Breathing -->
+    <div class="spot-card" id="breatheCard" hidden>
+      <div class="spot-orb" id="spotOrb">
+        <div><div class="spot-count" id="spotCount">4</div>
+             <div class="spot-phase" id="spotPhase">Breathe in</div></div>
+      </div>
+      <p class="spot-note" id="spotBreathNote">Through your nose.</p>
+      <div class="spot-btns">
+        <button class="ghostbtn" id="spotBreatheStart">Start</button>
+        <button class="ghostbtn" id="spotBreatheStop" disabled>Stop</button>
+      </div>
+    </div>
+
+    <!-- Grounding -->
+    <div class="spot-card" id="groundCard" hidden>
+      <div class="spot-cardhead">
+        <strong id="groundTitle">Five things you can see.</strong>
+        <span id="groundStep">1 / 5</span>
+      </div>
+      <div class="spot-dots" id="groundDots"></div>
+      <p class="spot-note" id="groundHint">Look around the room.</p>
+      <div class="spot-btns">
+        <button class="ghostbtn" id="groundNext">Next</button>
+        <button class="ghostbtn" id="groundDone">Done</button>
+      </div>
+    </div>
+
+    <!-- Confidence session -->
+    <div class="spot-card" id="confidenceCard" hidden>
+      <div class="spot-cardhead"><strong>Two-minute reset</strong><span id="confStage">Ready</span></div>
+      <p class="spot-note" id="confText">Breathe once, then say your opening line.</p>
+      <div class="spot-btns">
+        <input id="openingInput" type="text" placeholder="Your first sentence (optional)">
+      </div>
+      <div class="spot-btns">
+        <button class="ghostbtn" id="confStart">Begin</button>
+        <button class="ghostbtn" id="confStop" disabled>Stop</button>
+      </div>
+    </div>
+
+    <!-- Checklist: icon rows, label only. -->
+    <div class="spot-card">
+      <div class="spot-cardhead">
+        <strong>Ready?</strong>
+        <span id="checkCount">0 / 6</span>
+      </div>
+      <div class="spot-checklist" id="spotChecklist"></div>
+    </div>
+
+    <!-- Reminder -->
+    <div class="spot-card reminder">
+      <div class="spot-cardhead">
+        <strong>Remember</strong>
+        <span>FROM YOUR PROGRESS</span>
+      </div>
+      <p class="spot-note" id="spotReminder">Record once, and a reminder appears here.</p>
+    </div>
+
+    <div class="endbtns">
+      <button class="ghostbtn" id="spotBackBtn">Back</button>
+    </div>
+  </section>
+
+  <!-- ============================================ CHATBOT (all screens)
+
+       A single floating assistant rather than a card buried in one report.
+       It holds the ONLY chatLog / chatInput / chatSendBtn elements, so the
+       existing send logic drives it without duplication. -->
+  <button class="chat-fab" id="chatFab" aria-label="Open the coach" aria-expanded="false">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-5.5A8 8 0 0 1 11 4h2a8 8 0 0 1 8 8z"/>
+    </svg>
+    <span class="chat-fab-dot" id="chatFabDot" hidden></span>
+  </button>
+
+  <div class="chat-panel" id="chatPanel" aria-hidden="true" role="dialog" aria-label="Coach chat">
+    <div class="chat-panel-head">
+      <div>
+        <strong>Your coach</strong>
+        <span id="chatPanelSub">Answers from your measurements</span>
+      </div>
+      <button class="chat-close" id="chatClose" aria-label="Close chat">
+        <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="chatlog" id="chatLog" aria-live="polite"></div>
+
+    <!-- Attached files appear here, above the input, so it is obvious what
+         the next answer will be reading. -->
+    <div class="chat-files" id="chatFiles"></div>
+
+    <div class="chatrow">
+      <label class="chat-attach" for="chatFile" aria-label="Attach a text file">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7.5-7.5"/>
+        </svg>
+      </label>
+      <input id="chatFile" type="file" accept=".txt,.md,.csv,.json,.srt,.vtt,text/*" hidden>
+      <input id="chatInput" type="text" placeholder="Ask the coach…"
+             autocomplete="off" enterkeyhint="send">
+      <button id="chatSendBtn">Send</button>
+    </div>
+    <p class="cardnote" id="chatNote">Answers come from your own measurements.</p>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+
+  <!-- ================================================== SETTINGS -->
+  <aside class="sidebar" id="sidebar" aria-label="Settings" aria-hidden="true">
+    <div class="sidehead">
+      <h2>Settings</h2>
+      <button class="iconbtn" id="closeSidebar" aria-label="Close settings">
+        <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="side-section">
+      <h3>Speech</h3>
+      <div class="field">
+        <label for="languageSelect">Language</label>
+        <select id="languageSelect" data-no-i18n>
+          <option value="en-US" selected>English (US)</option>
+          <option value="en-GB">English (UK)</option>
+          <option value="ar-SA">Arabic — العربية · Saudi</option>
+          <option value="ar">Arabic — العربية</option>
+          <option value="es-ES">Spanish — Español</option>
+          <option value="fr-FR">French — Français</option>
+          <option value="de-DE">German — Deutsch</option>
+          <option value="it-IT">Italian — Italiano</option>
+          <option value="pt-PT">Portuguese — Português</option>
+          <option value="nl-NL">Dutch — Nederlands</option>
+          <option value="pl-PL">Polish — Polski</option>
+          <option value="el-GR">Greek — Ελληνικά</option>
+          <option value="tr-TR">Turkish — Türkçe</option>
+          <option value="vi-VN">Vietnamese — Tiếng Việt</option>
+          <option value="zh-CN">Chinese — 中文</option>
+          <option value="ja-JP">Japanese — 日本語</option>
+          <option value="ko-KR">Korean — 한국어</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="targetWpmInput">Target pace (WPM)</label>
+        <input id="targetWpmInput" type="number" min="60" max="240" value="118">
+      </div>
+      <div class="field">
+        <label for="coachStyle">Coaching style</label>
+        <select id="coachStyle">
+          <option value="Encouraging">Encouraging</option><option value="Professional">Professional</option><option value="Strict">Strict</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="side-section">
+      <h3>Feedback</h3>
+      <div class="field">
+        <label for="feedbackFrequency">AI feedback frequency</label>
+        <select id="feedbackFrequency">
+          <option value="low">Occasional</option>
+          <option value="medium" selected>Balanced</option>
+          <option value="high">Frequent</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="savebtn" id="saveSettings">Save settings</button>
+    <p class="note" id="buildInfo" style="text-align:center;margin-top:14px">version —</p>
+  </aside>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</main>
+
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
