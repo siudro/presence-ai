@@ -1689,6 +1689,26 @@ def provider_error_message(exc) -> str:
     return raw.strip()[:300] or str(getattr(exc, "reason", "") or exc)
 
 
+def reply_language_note(code) -> str:
+    """
+    One line added to a prompt so the AI answers in the page's language.
+
+    The page follows the speech language picked in Settings, so a student who
+    picked Arabic reads an Arabic page and should get Arabic answers too.
+    English needs no note: every prompt is already written in English.
+    """
+    short = str(code or "en")[:2].lower()
+    entry = LANGUAGES.get(short)
+    if short == "en" or not entry:
+        return ""
+    return "\n\nWrite your whole answer in " + entry["label"] + "."
+
+
+def token_room(base: int, code) -> int:
+    """Most other languages need more tokens than English for the same text."""
+    return base if not reply_language_note(code) else int(base * 1.6)
+
+
 def call_llm(system, user, *, label="llm", temperature=0.4, max_tokens=300,
              timeout=None):
     """
@@ -1814,6 +1834,9 @@ class Handler(BaseHTTPRequestHandler):
         # "/static/...". Without this the page loads unstyled when served.
         if path in ("/style.css", "/app.js", "/app.css"):
             return self._serve_static(path.lstrip("/"))
+        # Page translation: the engine, and one file per language.
+        if re.fullmatch(r"/i18n(-[a-z]{2})?\.js", path):
+            return self._serve_static(path.lstrip("/"))
         if path == "/api/health":
             return self._json(200, {
                 "ok": True,
@@ -1937,7 +1960,9 @@ class Handler(BaseHTTPRequestHandler):
             context = (context + "\n\n" + attachment).strip()
         user = (context + "\n\nQuestion: " + question).strip()
         try:
-            result = call_llm(PROMPT_CHAT_COACH, user, label="chat")
+            result = call_llm(PROMPT_CHAT_COACH + reply_language_note(payload.get("language")),
+                              user, label="chat",
+                              max_tokens=token_room(300, payload.get("language")))
         except LLMNotConfigured as exc:
             log_step("LLM  ← no key. " + str(exc), ok=False)
             code = "llm_no_key" if "no usable key" in str(exc) else "llm_not_configured"
@@ -1977,8 +2002,10 @@ class Handler(BaseHTTPRequestHandler):
                          "student read): " + str(missing) + " of " + str(total)
                          + " script words were not detected in the transcript.")
         try:
-            result = call_llm(PROMPT_POST_SPEECH_REVIEW, user, label="review",
-                              temperature=0.5, max_tokens=260)
+            result = call_llm(PROMPT_POST_SPEECH_REVIEW + reply_language_note(payload.get("language")),
+                              user, label="review",
+                              temperature=0.5,
+                              max_tokens=token_room(260, payload.get("language")))
         except LLMNotConfigured as exc:
             return self._json(503, {"error": "llm_not_configured", "message": str(exc)})
         except LLMCallFailed as exc:
@@ -2013,10 +2040,12 @@ class Handler(BaseHTTPRequestHandler):
         maximum_words = round(target_seconds * 2.4)
         system = PROMPT_SCRIPT_FROM_FILE.format(
             minimum_words=minimum_words, maximum_words=maximum_words)
+        system += reply_language_note(payload.get("language"))
         user = "PRESENTATION TEXT:\n" + source
         try:
             result = call_llm(system, user, label="script",
-                              temperature=0.6, max_tokens=1200)
+                              temperature=0.6,
+                              max_tokens=token_room(1200, payload.get("language")))
         except LLMNotConfigured as exc:
             return self._json(503, {"error": "llm_not_configured", "message": str(exc)})
         except LLMCallFailed as exc:

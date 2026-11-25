@@ -718,7 +718,7 @@ class TestLiveFeatures(unittest.TestCase):
     def test_ui_detects_an_old_server(self):
         """An old server must be named, not silently shown as 'no key'."""
         self.assertIn("can_persist === undefined", self.js)
-        self.assertIn("older version and cannot save keys", self.js)
+        self.assertIn('"old server"', self.js)
 
     def test_pasted_key_is_saved_to_disk(self):
         """
@@ -746,9 +746,6 @@ class TestLiveFeatures(unittest.TestCase):
         self.assertIn("except OSError", block)
         self.assertIn("return False", block)
 
-    def test_ui_tells_the_student_the_key_is_kept(self):
-        self.assertIn("you will not need to paste it again", self.js)
-
     def test_key_status_refreshes_when_settings_opens(self):
         """
         The status was read once at startup, so a key pasted afterwards left
@@ -757,24 +754,6 @@ class TestLiveFeatures(unittest.TestCase):
         start = self.js.index("const openSidebar = () =>")
         block = self.js[start:start + 500]
         self.assertIn("refreshKeyStatus", block)
-
-    def test_file_scheme_refuses_a_key_paste(self):
-        """
-        On file:// there is no server to store a key in, so the field must say
-        that rather than accepting a paste that can never work.
-        """
-        start = self.js.index("function checkOffline")
-        block = self.js[start:self.js.index("// Allow #live", start)]
-        self.assertIn("Cannot save a key here", block)
-        self.assertIn("disabled = true", block)
-
-    def test_endpoint_field_is_explained(self):
-        """
-        She asked what it was. The OpenAI section now states the endpoint is
-        only needed for non-OpenAI providers, which is clearer than the old
-        'usually leave this as-is' hint.
-        """
-        self.assertIn("leave empty for openai", self.html.lower())
 
     def test_rule_based_coach_exists(self):
         self.assertIn("const COACH_RULES", self.js)
@@ -909,13 +888,6 @@ class TestReportedBugs(unittest.TestCase):
         for name, body in (("html", self.html.lower()), ("js", self.js.lower()), ("css", self.css.lower())):
             self.assertNotIn("speakflow", body, f"template name still in {name}")
 
-    def test_cohere_key_is_actually_sent_to_the_server(self):
-        start = self.js.index("const saveBtn")
-        end = self.js.index("async function refreshKeyStatus")
-        body = self.js[start:end]
-        self.assertIn("/api/key", body)
-        self.assertIn("apiKey", body)
-
     def test_transcript_is_not_hidden_by_css(self):
         """No .transcript rule may hide the panel."""
         import re
@@ -925,10 +897,13 @@ class TestReportedBugs(unittest.TestCase):
         joined = " ".join(blocks).replace(" ", "")
         self.assertNotIn("display:none", joined)
 
-    def test_ui_names_which_api_is_which(self):
-        self.assertIn("Cohere", self.html)
-        self.assertIn('id="apiKey"', self.html)
-        self.assertIn('id="llmKey"', self.html)
+    def test_key_fields_removed_from_settings(self):
+        """Keys come from environment variables (Railway), not the page."""
+        self.assertNotIn('id="apiKey"', self.html)
+        self.assertNotIn('id="llmKey"', self.html)
+        self.assertNotIn('id="apiEndpoint"', self.html)
+        # The script must still run with the fields gone.
+        self.assertNotIn('$("apiEndpoint").value', self.js)
 
     def test_live_numbers_cannot_overflow(self):
         """Concept C shows the numbers in a 4-cell strip; they must clip."""
@@ -1585,14 +1560,6 @@ class TestAiKeyFromSettings(unittest.TestCase):
     THE root cause of the chat staying rule-based: the AI key field existed in
     the UI but was never sent to the server on Save. Only the Cohere key was.
     """
-
-    def test_save_sends_the_ai_key(self):
-        src = open(os.path.join(HERE, "static", "app.js"), encoding="utf-8").read()
-        start = src.index("const saveBtn")
-        end = src.index("function refreshKeyStatus", start)
-        body = src[start:end]
-        self.assertIn('"llmKey"', body)
-        self.assertIn('kind: "llm"', body)
 
     def test_server_accepts_an_ai_key(self):
         src = open(app.__file__, encoding="utf-8").read()
@@ -2402,6 +2369,85 @@ class TestLlmProviderResponses(unittest.TestCase):
         app.LLM_KEY_FILE.write_text("sk-proj-an-openai-key-xxxxxxxxxxxxxxxx\n", encoding="utf-8")
         app.ensure_llm_config()
         self.assertEqual(app.load_llm_config()["base_url"], self.base)
+
+
+class TestPageLanguage(unittest.TestCase):
+    """
+    Picking a speech language in Settings also switches the page itself.
+    The whole page, not only the coach: every language the dropdown offers
+    has its own translation file, and Arabic turns the page right-to-left.
+    """
+
+    LANGS = ["ar", "es", "fr", "de", "it", "pt", "nl", "pl", "el", "tr", "vi", "zh", "ja", "ko"]
+
+    @classmethod
+    def setUpClass(cls):
+        static = os.path.join(HERE, "static")
+        cls.html = open(os.path.join(static, "index.html"), encoding="utf-8").read()
+        cls.js = open(os.path.join(static, "app.js"), encoding="utf-8").read()
+        cls.engine = open(os.path.join(static, "i18n.js"), encoding="utf-8").read()
+        cls.dicts = {}
+        import re
+        for code in cls.LANGS:
+            src = open(os.path.join(static, "i18n-" + code + ".js"), encoding="utf-8").read()
+            body = src[src.index("] = ") + 4:].rstrip().rstrip(";")
+            cls.dicts[code] = json.loads(body)
+        cls.re = re
+
+    def test_every_dropdown_language_has_a_translation(self):
+        codes = set(c[:2] for c in self.re.findall(r'<option value="([a-z]{2}(?:-[A-Z]{2})?)"', self.html))
+        codes.discard("en")
+        self.assertEqual(sorted(codes), sorted(self.LANGS))
+
+    def test_translation_files_cover_the_same_text(self):
+        reference = set(self.dicts["ar"])
+        for code, d in self.dicts.items():
+            self.assertEqual(set(d), reference, code + " is missing or has extra entries")
+            for key, value in d.items():
+                self.assertTrue(value.strip(), code + ": empty translation for " + key)
+
+    def test_placeholders_stay_in_range(self):
+        for code, d in self.dicts.items():
+            for key, value in d.items():
+                slots = len(self.re.findall(r"\{n?\}", key))
+                for used in self.re.findall(r"\{(\d+)\}", value):
+                    self.assertLess(int(used), slots, code + ": " + value)
+
+    def test_engine_loads_before_the_app(self):
+        self.assertLess(self.html.index('src="i18n.js"'), self.html.index('src="app.js"'))
+
+    def test_choosing_a_language_switches_the_page(self):
+        start = self.js.index("function initSettings")
+        body = self.js[start:start + 1500]
+        self.assertIn('langSelect.addEventListener("change"', body)
+        self.assertIn("PresenceI18n.setLanguage", self.js)
+        self.assertIn("PresenceI18n.saveLanguage", self.js)
+
+    def test_arabic_is_right_to_left(self):
+        self.assertIn('const RTL = ["ar"]', self.engine)
+        self.assertIn('"rtl"', self.engine)
+
+    def test_the_students_words_are_never_translated(self):
+        for element_id in ("transcriptPanel", "reportTranscript", "teleprompterText", "languageSelect"):
+            tag = self.html[self.html.index('id="' + element_id + '"') - 200:self.html.index('id="' + element_id + '"') + 120]
+            self.assertIn("data-no-i18n", tag, element_id)
+        self.assertIn('if (role === "user") div.setAttribute("data-no-i18n"', self.js)
+
+    def test_coach_style_values_do_not_change_with_language(self):
+        for style in ("Encouraging", "Professional", "Strict"):
+            self.assertIn('<option value="' + style + '">', self.html)
+
+    def test_server_serves_translation_files(self):
+        src = open(app.__file__, encoding="utf-8").read()
+        self.assertIn(r'/i18n(-[a-z]{2})?\.js', src)
+
+    def test_ai_answers_in_the_page_language(self):
+        self.assertEqual(app.reply_language_note("en-US"), "")
+        self.assertIn("Arabic", app.reply_language_note("ar-SA"))
+        self.assertIn("Japanese", app.reply_language_note("ja-JP"))
+        self.assertEqual(app.reply_language_note("xx"), "")
+        self.assertGreater(app.token_room(300, "ar"), 300)
+        self.assertEqual(app.token_room(300, "en"), 300)
 
 
 if __name__ == "__main__":
