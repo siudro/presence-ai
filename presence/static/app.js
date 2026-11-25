@@ -1053,6 +1053,7 @@ function renderHeatmap(timeline, note) {
 
   if (label) label.textContent = "Your last session, second by second. Tap a band to read what happened there.";
   if (detail) {
+    detail.removeAttribute("data-no-i18n");
     const flagged = timeline.filter((b) => b.flags.length).length;
     detail.textContent = flagged
       ? flagged + " of " + timeline.length + " seconds had something worth seeing."
@@ -1062,14 +1063,16 @@ function renderHeatmap(timeline, note) {
 
 function describeSecond(b) {
   if (!b) return "";
+  // Each part is translated on its own (see i18n.js); joined, they are not.
+  const tr = (x) => (window.PresenceI18n ? PresenceI18n.t(x) : x);
   const parts = ["Second " + b.t + ":"];
   if (b.wpm != null) parts.push("about " + Math.round(b.wpm) + " wpm.");
   if (b.fillers) parts.push(b.fillers + " filler" + (b.fillers === 1 ? "" : "s") + ".");
   if (b.paused) parts.push("marked as a pause.");
   if (b.db != null) parts.push("volume " + b.db + " dBFS.");
   if (!b.flags.length) parts.push("nothing out of range.");
-  else parts.push("flags: " + b.flags.join(", ") + ".");
-  return parts.join(" ");
+  else parts.push("flags: " + b.flags.map(tr).join(", ") + ".");
+  return parts.map(tr).join(" ");
 }
 
 function onHeatmapClick(event) {
@@ -1078,7 +1081,11 @@ function onHeatmapClick(event) {
   const i = Number(cell.dataset.i);
   const b = heatmapCells[i];
   const detail = $("heatDetail");
-  if (detail) detail.textContent = describeSecond(b);
+  if (detail) {
+    // describeSecond() already returns the page language; keep i18n.js off it.
+    detail.setAttribute("data-no-i18n", "");
+    detail.textContent = describeSecond(b);
+  }
 
   Array.from(cell.parentElement.children).forEach((c) => c.classList.remove("sel"));
   cell.classList.add("sel");
@@ -1609,8 +1616,10 @@ async function loadProgress() {
     let when = "";
     if (r.created_at) {
       const d = new Date(r.created_at);
-      when = d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
-             " · " + d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+      // Dates in the page's language, not just the browser's.
+      const loc = window.PresenceI18n && PresenceI18n.lang !== "en" ? PresenceI18n.lang : undefined;
+      when = d.toLocaleDateString(loc, { month: "short", day: "numeric" }) +
+             " · " + d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" });
     }
     const wpm = r.wpm != null ? Math.round(r.wpm) + " wpm" : "no rate";
     const fillers = (r.filler_total != null ? r.filler_total : 0) + " fillers";
@@ -1710,6 +1719,8 @@ function addBubble(role, text, extraClass) {
   const div = document.createElement("div");
   div.className = "chatmsg " + role + (extraClass ? " " + extraClass : "");
   div.textContent = text;
+  // The student's own words are never translated.
+  if (role === "user") div.setAttribute("data-no-i18n", "");
   log.appendChild(div);
   log.scrollTop = log.scrollHeight;
   return div;
@@ -2758,7 +2769,7 @@ async function loadReview(report, scriptComparison) {
       fetch("/api/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ report: report, script_comparison: scriptComparison || null }),
+        body: JSON.stringify({ report: report, script_comparison: scriptComparison || null, language: config.language }),
       }),
       new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 40000)),
     ]);
@@ -2810,7 +2821,7 @@ async function makeScript() {
       fetch("/api/script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text, target_seconds: 120 }),
+        body: JSON.stringify({ text: text, target_seconds: 120, language: config.language }),
       }),
       new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 60000)),
     ]);
@@ -2883,7 +2894,27 @@ function initScript() {
 
 /* ============================================================ UI plumbing */
 
+/**
+ * Use one speech language everywhere: the microphone, the coach, and the
+ * page itself (see i18n.js). `remember` keeps it for the next visit.
+ */
+function applyLanguage(code, remember) {
+  const select = $("languageSelect");
+  if (!code || !SPEECH_LOCALES[code]) return;
+  config.language = code;
+  if (select && select.value !== code) select.value = code;
+  const label = $("languageLabel");
+  if (label && select && select.selectedOptions[0]) label.textContent = select.selectedOptions[0].textContent;
+  if (window.PresenceI18n) {
+    if (remember) PresenceI18n.saveLanguage(code);
+    PresenceI18n.setLanguage(code);
+  }
+}
+
 function initSettings() {
+  const saved = window.PresenceI18n && PresenceI18n.savedLanguage();
+  if (saved) applyLanguage(saved, false);
+
   const openBtn = $("openSidebar");
   const closeBtn = $("closeSidebar");
   const scrim = $("scrim");
@@ -2909,16 +2940,21 @@ function initSettings() {
   const quick = $("languageQuick");
   if (quick) quick.addEventListener("click", openSidebar);
 
+  // Picking a speech language also switches the page to that language,
+  // straight away, and remembers it for the next visit.
+  const langSelect = $("languageSelect");
+  if (langSelect) {
+    langSelect.addEventListener("change", () => applyLanguage(langSelect.value, true));
+  }
+
   const saveBtn = $("saveSettings");
   if (saveBtn) {
     saveBtn.addEventListener("click", async () => {
-      config.language = $("languageSelect").value;
+      applyLanguage($("languageSelect").value, true);
       config.targetWpm = Math.max(60, Math.min(240, Number($("targetWpmInput").value) || 130));
       config.coachStyle = $("coachStyle").value;
       config.feedbackFrequency = $("feedbackFrequency").value;
 
-      const label = $("languageLabel");
-      if (label) label.textContent = $("languageSelect").selectedOptions[0].textContent;
       const bind = document.querySelector('[data-bind="targetWpm"]');
       if (bind) bind.textContent = config.targetWpm;
 
@@ -3081,7 +3117,7 @@ async function makeScript() {
       fetch("/api/script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: text, target_seconds: 120 }),
+        body: JSON.stringify({ text: text, target_seconds: 120, language: config.language }),
       }),
       new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 60000)),
     ]);
@@ -3437,6 +3473,14 @@ document.addEventListener("keydown", (event) => {
 const heatmapBox = $("heatmap");
 if (heatmapBox) heatmapBox.addEventListener("click", onHeatmapClick);
 
+// Redraw the progress list when the language changes, so its dates follow.
+document.addEventListener("presence:language", () => {
+  const prog = $("progressScreen");
+  if (prog && prog.classList.contains("active")) {
+    try { loadProgress(); } catch (e) { /* the screen still works in English */ }
+  }
+});
+
 initSettings();
 initSession();
 initScript();
@@ -3650,8 +3694,11 @@ function tickCalm() {
 
   if (calmTicks === 0 && "speechSynthesis" in window) {
     try {
-      const u = new SpeechSynthesisUtterance(step.phase);
+      const u = new SpeechSynthesisUtterance(window.PresenceI18n ? PresenceI18n.t(step.phase) : step.phase);
       u.rate = 0.85;
+      if (window.PresenceI18n && PresenceI18n.lang !== "en") {
+        u.lang = SPEECH_LOCALES[config.language] || config.language;
+      }
       window.speechSynthesis.speak(u);
     } catch (e) { /* voice is a bonus */ }
   }

@@ -13,7 +13,7 @@
   <header class="topbar">
     <div class="brandmark">
       <div class="mark" aria-hidden="true"></div>
-      <span class="brandname">PRESENCE</span>
+      <span class="brandname" data-no-i18n>PRESENCE</span>
     </div>
     <button class="iconbtn" id="openSidebar" aria-label="Open settings" aria-controls="sidebar" aria-expanded="false">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.7-1L14.5 3h-4l-.3 2.6a7 7 0 0 0-1.7 1l-2.4-1-2 3.4L6 11a7 7 0 0 0 0 2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.7 1l.3 2.6h4l.3-2.6a7 7 0 0 0 1.7-1l2.4 1 2-3.4-2-1.6a7 7 0 0 0 .1-1z"/></svg>
@@ -24,7 +24,7 @@
   <section class="screen active" id="readyScreen" data-screen="ready" aria-label="Ready to practice">
     <div class="greet">
       <div class="eyebrow" id="micStatus">Ready when you are</div>
-      <h1>Let your voice<br>do the <em>talking.</em></h1>
+      <h1 data-i18n-html>Let your voice<br>do the <em>talking.</em></h1>
     </div>
 
     <div class="stage">
@@ -57,7 +57,7 @@
         <input id="scriptFile" type="file" accept=".txt,.md,text/plain,text/markdown" hidden>
         <button class="ghostbtn" id="scriptPasteBtn" type="button">Or paste notes</button>
       </div>
-      <p class="scriptlimit" id="scriptLimit">
+      <p class="scriptlimit" id="scriptLimit" data-i18n-html>
         We can read <strong>.txt</strong> and <strong>.md</strong>. A presentation
         file (PowerPoint, PDF, Word) needs a text export first — this app has no
         document parser, and will not pretend otherwise.
@@ -94,7 +94,7 @@
       <div class="targets-head">Your settings</div>
       <button class="trow asbtn" id="languageQuick">
         <span>Language</span>
-        <span id="languageLabel">English</span>
+        <span id="languageLabel" data-no-i18n>English</span>
       </button>
       <div class="trow"><span>Target pace</span><span data-bind="targetWpm">118 wpm</span></div>
       <div class="trow"><span>Cohere transcription</span><span class="dim" id="homeKeyState">—</span></div>
@@ -125,7 +125,7 @@
     </div>
 
     <!-- The transcript. Lyric-style: newest line bright, earlier faded. -->
-    <div class="transcript" id="transcriptPanel" data-transcript aria-live="polite">
+    <div class="transcript" id="transcriptPanel" data-transcript data-no-i18n aria-live="polite">
       <span class="transcript-empty">Listening…</span>
     </div>
 
@@ -158,7 +158,7 @@
         <button class="ghostbtn tiny" id="scriptViewToggle" type="button" aria-expanded="true">Hide</button>
       </div>
       <div class="teleprompter" id="teleprompterBox">
-        <div class="teleprompter-text" id="teleprompterText"></div>
+        <div class="teleprompter-text" id="teleprompterText" data-no-i18n></div>
       </div>
       <p class="scriptview-note" id="scriptViewNote" hidden></p>
     </div>
@@ -213,7 +213,7 @@
 
     <div class="card">
       <div class="cardhead">WHAT YOU SAID</div>
-      <div class="transcript static" id="reportTranscript">
+      <div class="transcript static" id="reportTranscript" data-no-i18n>
         <span class="transcript-empty">No transcript yet.</span>
       </div>
       <p class="cardnote" id="transcriptSource"></p>
@@ -332,7 +332,7 @@
 
     <div class="spot-head">
       <div class="spot-eyebrow">Before the spotlight</div>
-      <h1 class="spot-title">Breathe.<br><em>You’re ready.</em></h1>
+      <h1 class="spot-title" data-i18n-html>Breathe.<br><em>You’re ready.</em></h1>
     </div>
 
     <!-- Three large symbols, not three rows of text. -->
@@ -484,7 +484,7 @@
       <h3>Speech</h3>
       <div class="field">
         <label for="languageSelect">Language</label>
-        <select id="languageSelect">
+        <select id="languageSelect" data-no-i18n>
           <option value="en-US" selected>English (US)</option>
           <option value="en-GB">English (UK)</option>
           <option value="ar-SA">Arabic — العربية · Saudi</option>
@@ -511,7 +511,7 @@
       <div class="field">
         <label for="coachStyle">Coaching style</label>
         <select id="coachStyle">
-          <option>Encouraging</option><option>Professional</option><option>Strict</option>
+          <option value="Encouraging">Encouraging</option><option value="Professional">Professional</option><option value="Strict">Strict</option>
         </select>
       </div>
     </div>
@@ -535,6 +535,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </main>
 
+<script src="i18n.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

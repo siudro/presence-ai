@@ -1755,3 +1755,16 @@ body {
   .teleprompter { scroll-behavior: auto; }
   .modecard:hover { transform: none; }
 }
+
+/* Right-to-left pages (Arabic). Figures such as "<5%", "00:12" or "-30"
+   keep their own order instead of being flipped by the surrounding text. */
+[dir="rtl"] .stage-meta b,
+[dir="rtl"] .mval,
+[dir="rtl"] .rcell b,
+[dir="rtl"] .scorenum,
+[dir="rtl"] .dnum,
+[dir="rtl"] .clock,
+[dir="rtl"] .cmp span,
+[dir="rtl"] .rec b {
+  unicode-bidi: plaintext;
+}
