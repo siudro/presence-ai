@@ -2909,26 +2909,6 @@ function initSettings() {
   const quick = $("languageQuick");
   if (quick) quick.addEventListener("click", openSidebar);
 
-  const toggleKey = $("toggleKey");
-  if (toggleKey) {
-    toggleKey.addEventListener("click", () => {
-      const field = $("apiKey");
-      field.type = field.type === "password" ? "text" : "password";
-      toggleKey.textContent = field.type === "password" ? "Show" : "Hide";
-    });
-  }
-
-  // A second show/hide for the AI key.
-  const toggleLlm = $("toggleLlmKey");
-  if (toggleLlm) {
-    toggleLlm.addEventListener("click", () => {
-      const field = $("llmKey");
-      if (!field) return;
-      field.type = field.type === "password" ? "text" : "password";
-      toggleLlm.textContent = field.type === "password" ? "Show" : "Hide";
-    });
-  }
-
   const saveBtn = $("saveSettings");
   if (saveBtn) {
     saveBtn.addEventListener("click", async () => {
@@ -2936,79 +2916,14 @@ function initSettings() {
       config.targetWpm = Math.max(60, Math.min(240, Number($("targetWpmInput").value) || 130));
       config.coachStyle = $("coachStyle").value;
       config.feedbackFrequency = $("feedbackFrequency").value;
-      window.__llmEndpoint = ($("apiEndpoint").value || "").trim();
 
       const label = $("languageLabel");
       if (label) label.textContent = $("languageSelect").selectedOptions[0].textContent;
       const bind = document.querySelector('[data-bind="targetWpm"]');
       if (bind) bind.textContent = config.targetWpm;
 
-      // Send the Cohere key to the server.
-      //
-      // This field was previously read into a variable and then thrown away,
-      // so a key pasted here never reached transcription. The old page had a
-      // working key box; the new UI replaced it and silently dropped that
-      // step, which is why nothing was being typed on screen.
-      const keyField = $("apiKey");
-      const statusEl = $("cohereKeyStatus");
-      const pastedKey = (keyField && keyField.value ? keyField.value : "").trim();
-      if (pastedKey) {
-        try {
-          const res = await fetch("/api/key", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ key: pastedKey }),
-          });
-          const data = await res.json();
-          if (res.ok && data.configured) {
-            if (keyField) keyField.value = "";
-            if (statusEl) {
-              statusEl.textContent = data.saved_to_disk
-                // Saved to the file the app reads on start, so a restart keeps it.
-                ? "Saved and kept on this computer " + (data.hint || "") + " — you will not need to paste it again."
-                : (data.message || "Saved for this session only.");
-            }
-            toast(data.saved_to_disk ? "Key saved" : "Key set for this session");
-          } else {
-            if (statusEl) statusEl.textContent = data.message || "That key was not accepted.";
-            toast("Key not accepted");
-          }
-        } catch (err) {
-          if (statusEl) statusEl.textContent = "Could not reach the server — is python3 app.py running?";
-          toast("Server not reachable");
-        }
-      }
-
-      // Send the AI-chat key. This block did not exist: the field was read for
-      // its Show/Hide toggle and never on Save, so a pasted AI key was thrown
-      // away and the chat stayed rule based however many times it was tried.
-      const llmField = $("llmKey");
-      const llmStatusEl = $("llmKeyStatus");
-      const pastedLlm = (llmField && llmField.value ? llmField.value : "").trim();
-      if (pastedLlm) {
-        try {
-          const res = await fetch("/api/key", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ kind: "llm", key: pastedLlm }),
-          });
-          const data = await res.json();
-          if (res.ok && data.configured) {
-            if (llmField) llmField.value = "";
-            if (llmStatusEl) {
-              llmStatusEl.textContent =
-                "Saved " + (data.hint || "") + " — model " + (data.model || "default") +
-                (data.config_exists ? "." : " (config created on next start).");
-            }
-            toast("AI key saved");
-          } else {
-            if (llmStatusEl) llmStatusEl.textContent = data.message || "That key was not accepted.";
-            toast("AI key not accepted");
-          }
-        } catch (err) {
-          if (llmStatusEl) llmStatusEl.textContent = "Could not reach the server.";
-        }
-      }
+      // API keys are no longer entered here: they come from the host's
+      // environment variables (COHERE_API_KEY, OPENAI_API_KEY / GEMINI_API_KEY).
 
       closeSidebar();
     });
@@ -3022,22 +2937,14 @@ function initSettings() {
  * guess whether the paste worked.
  */
 async function refreshKeyStatus() {
-  const statusEl = $("cohereKeyStatus");
-  if (!statusEl) return;
-  if (location.protocol === "file:") {
-    statusEl.textContent = "Needs the local server — start it with python3 app.py.";
-    return;
-  }
+  // API keys come from the host's environment variables, so there is no key
+  // field to report on. This still fills in the version line and the
+  // home-screen "ready / not set" state.
+  if (location.protocol === "file:") return;
   try {
     const res = await fetch("/api/key");
     const data = await res.json();
-    const home = $("homeKeyState");
 
-    // Show the AI key state beside the Cohere one. Their absence of a status
-    // line made a saved AI key look like the Cohere key had been lost.
-    // Show which build is running. Without this, "am I on the old copy?" is
-    // unanswerable from the page, and a stale folder looks identical to a
-    // broken fix.
     const buildEl = $("buildInfo");
     if (buildEl) {
       buildEl.textContent = data && data.build
@@ -3045,36 +2952,13 @@ async function refreshKeyStatus() {
         : "version unknown (old copy)";
     }
 
-    const llmEl = $("llmKeyStatus");
-    if (llmEl) {
-      const ai = data && data.llm;
-      llmEl.textContent = ai && ai.configured
-        ? "Loaded " + (ai.hint || "") + " — model " + (ai.model || "default") + "."
-        : "Not set yet — paste your OpenAI key above, then Save.";
-    }
-
-    /*
-     * If the running server does not advertise persistence, the browser is
-     * talking to an OLD server process — which is exactly why a pasted key
-     * would vanish. Say that instead of showing a misleading "Not set yet".
-     */
-    if (data && data.can_persist === undefined) {
-      statusEl.textContent =
-        "This server is an older version and cannot save keys. Stop it (Ctrl+C) and start it again with python3 app.py.";
-      if (home) home.textContent = "old server";
-      return;
-    }
-
-    if (data && data.configured) {
-      const where = { page: "typed here", file: "from api_key.txt", environment: "from the environment" }[data.source] || data.source;
-      statusEl.textContent = "Key loaded " + where + (data.hint ? " (" + data.hint + ")" : "") + ".";
-      if (home) home.textContent = "ready";
-    } else {
-      statusEl.textContent = "Not set yet — paste your Cohere key above, then Save.";
-      if (home) home.textContent = "not set";
+    const home = $("homeKeyState");
+    if (home) {
+      if (data && data.can_persist === undefined) home.textContent = "old server";
+      else home.textContent = data && data.configured ? "ready" : "not set";
     }
   } catch (err) {
-    statusEl.textContent = "Could not reach the server.";
+    /* server unreachable: leave the defaults */
   }
 }
 
@@ -3291,15 +3175,7 @@ function checkOffline() {
     "and open <code>http://localhost:8080</code> — not this file.";
   document.body.prepend(banner);
 
-  // A key pasted on this page can never be saved, so say that where the key
-  // is, instead of letting someone type it and wonder why nothing changes.
-  const status = $("cohereKeyStatus");
-  if (status) {
-    status.textContent =
-      "Cannot save a key here — this page is a file, not the running app. " +
-      "Start the server and open http://localhost:8080 instead.";
-  }
-  ["apiKey", "llmKey", "apiEndpoint", "saveSettings"].forEach((id) => {
+  ["saveSettings"].forEach((id) => {
     const el = $(id);
     if (el) {
       el.disabled = true;
