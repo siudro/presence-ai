@@ -1,0 +1,12 @@
+{
+  "_comment": "AI-chat provider config for the deployed server (Railway). Chosen with LLM_CONFIG=llm_config.deploy.json.",
+  "_security": "NEVER put a real key in this file. The key lives in the GEMINI_API_KEY environment variable.",
+  "_why": "A deployed server has no terminal, so llm_config.json cannot be created by pasting a key in Settings. A committed config with no secret in it is the reproducible answer.",
+  "provider": "gemini",
+  "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+  "model": "gemini-4-hydrogen",
+  "api_key_env": "GEMINI_API_KEY",
+  "timeout": 30,
+  "reasoning_effort": "low",
+  "thinking_headroom": 2048
+}

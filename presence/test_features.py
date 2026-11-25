@@ -28,6 +28,38 @@ import test_app  # ensures the base suite is importable alongside this one
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+def isolate_app_in(dirpath):
+    """
+    Point the app at a temporary folder for the duration of one test.
+
+    Returns the saved values; the caller restores them in `finally`.
+
+    DATA_DIR has to move with HERE. Since the deploy, the writable files
+    (sessions, api_key.txt, llm_api_key.txt) resolve through DATA_DIR, so a
+    test that redirects only HERE keeps writing into the real folder — which
+    is read-only in the deployed image, and a live key on a student's Mac.
+    LLM_CONFIG is cleared for the same reason: a deployment sets it, and it
+    would otherwise load a config this test never wrote.
+    """
+    import pathlib
+    dirpath = pathlib.Path(dirpath)
+    saved = (app.HERE, app.DATA_DIR, app.LLM_KEY_FILE, app.API_KEY_FILE,
+             os.environ.get("LLM_CONFIG"))
+    app.HERE = dirpath
+    app.DATA_DIR = dirpath
+    app.LLM_KEY_FILE = dirpath / "llm_api_key.txt"
+    app.API_KEY_FILE = dirpath / "api_key.txt"
+    os.environ.pop("LLM_CONFIG", None)
+    return saved
+
+
+def restore_app(saved):
+    (app.HERE, app.DATA_DIR, app.LLM_KEY_FILE, app.API_KEY_FILE,
+     llm_config) = saved
+    if llm_config is not None:
+        os.environ["LLM_CONFIG"] = llm_config
+
+
 def make_wav(seconds=1.0, freq=220.0, rate=16000):
     """A real WAV in memory, so upload tests send a valid file."""
     buf = io.BytesIO()
@@ -336,7 +368,9 @@ class TestTranscribeClientGuards(unittest.TestCase):
             cohere_transcribe.transcribe("/nope/missing.wav", "en")
 
     def test_unsupported_extension_is_reported(self):
-        path = os.path.join(HERE, "tmp_not_audio.txt")
+        # Written to the data folder, not next to the code: in the deployed
+        # image the code folder is read-only to the service account.
+        path = os.path.join(str(app.DATA_DIR), "tmp_not_audio.txt")
         with open(path, "w") as fh:
             fh.write("x")
         try:
@@ -1628,11 +1662,8 @@ class TestJustPasteTheKey(unittest.TestCase):
     def test_a_pasted_key_creates_the_config(self):
         import pathlib
         import tempfile
-        original_dir = app.HERE
-        original_key = app.LLM_KEY_FILE
         with tempfile.TemporaryDirectory() as d:
-            app.HERE = pathlib.Path(d)
-            app.LLM_KEY_FILE = pathlib.Path(d) / "llm_api_key.txt"
+            saved = isolate_app_in(d)
             try:
                 # No config at all, only a pasted OpenAI-looking key.
                 self.assertFalse((pathlib.Path(d) / "llm_config.json").exists())
@@ -1642,40 +1673,31 @@ class TestJustPasteTheKey(unittest.TestCase):
                 self.assertIsNotNone(cfg)
                 self.assertEqual(cfg["provider"], "openai")
             finally:
-                app.HERE = original_dir
-                app.LLM_KEY_FILE = original_key
+                restore_app(saved)
 
     def test_no_key_no_config_stays_rule_based(self):
         """Without a key, nothing is invented and nothing is written."""
         import pathlib
         import tempfile
-        original_dir = app.HERE
-        original_key = app.LLM_KEY_FILE
         with tempfile.TemporaryDirectory() as d:
-            app.HERE = pathlib.Path(d)
-            app.LLM_KEY_FILE = pathlib.Path(d) / "llm_api_key.txt"
+            saved = isolate_app_in(d)
             try:
                 self.assertFalse(app.ensure_llm_config())
                 self.assertFalse((pathlib.Path(d) / "llm_config.json").exists())
             finally:
-                app.HERE = original_dir
-                app.LLM_KEY_FILE = original_key
+                restore_app(saved)
 
     def test_gemini_key_creates_a_gemini_config(self):
         import pathlib
         import tempfile
-        original_dir = app.HERE
-        original_key = app.LLM_KEY_FILE
         with tempfile.TemporaryDirectory() as d:
-            app.HERE = pathlib.Path(d)
-            app.LLM_KEY_FILE = pathlib.Path(d) / "llm_api_key.txt"
+            saved = isolate_app_in(d)
             try:
                 app.save_llm_key("AIza-testkey-abcdefghijklmnop")
                 self.assertTrue(app.ensure_llm_config())
                 self.assertEqual(app.load_llm_config()["provider"], "gemini")
             finally:
-                app.HERE = original_dir
-                app.LLM_KEY_FILE = original_key
+                restore_app(saved)
 
 
 class TestPullWorkflow(unittest.TestCase):
@@ -1868,20 +1890,19 @@ class TestFreeLlmProvider(unittest.TestCase):
         import pathlib
         import tempfile
 
-        original = app.HERE
         with tempfile.TemporaryDirectory() as d:
             path = pathlib.Path(d) / "llm_config.json"
             path.write_text(
                 open(os.path.join(HERE, "llm_config.gemini.json"), encoding="utf-8").read(),
                 encoding="utf-8",
             )
-            app.HERE = pathlib.Path(d)
+            saved = isolate_app_in(d)
             try:
                 cfg = app.load_llm_config()
                 self.assertIsNotNone(cfg)
                 self.assertEqual(cfg["provider"], "gemini")
             finally:
-                app.HERE = original
+                restore_app(saved)
 
 
 class TestBeforeTheSpotlight(unittest.TestCase):
@@ -2337,9 +2358,12 @@ class TestLlmProviderResponses(unittest.TestCase):
         import pathlib
         import tempfile
         self.tmp = tempfile.TemporaryDirectory()
-        self.saved = (app.HERE, app.LLM_KEY_FILE, os.environ.get("GEMINI_API_KEY"))
+        self.saved = (app.HERE, app.DATA_DIR, app.LLM_KEY_FILE,
+                      os.environ.get("GEMINI_API_KEY"), os.environ.get("LLM_CONFIG"))
         app.HERE = pathlib.Path(self.tmp.name)
+        app.DATA_DIR = app.HERE
         app.LLM_KEY_FILE = app.HERE / "llm_api_key.txt"
+        os.environ.pop("LLM_CONFIG", None)
         cfg = json.load(open(os.path.join(HERE, "llm_config.gemini.json"), encoding="utf-8"))
         cfg["base_url"] = self.base
         (app.HERE / "llm_config.json").write_text(json.dumps(cfg), encoding="utf-8")
@@ -2347,7 +2371,9 @@ class TestLlmProviderResponses(unittest.TestCase):
         self.seen.clear()
 
     def tearDown(self):
-        app.HERE, app.LLM_KEY_FILE, env = self.saved
+        app.HERE, app.DATA_DIR, app.LLM_KEY_FILE, env, llm_config = self.saved
+        if llm_config is not None:
+            os.environ["LLM_CONFIG"] = llm_config
         if env is None:
             os.environ.pop("GEMINI_API_KEY", None)
         else:

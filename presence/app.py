@@ -52,7 +52,16 @@ BUILD = "2026-11-19-key-persist-r2"
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "static"
-SESSIONS_FILE = HERE / "sessions.jsonl"
+
+# Where sessions and written keys live.
+#
+# On a Mac this is the presence folder itself, exactly as before. In a
+# deployed container the code folder is replaced on every redeploy, so
+# DATA_DIR points at a Railway volume instead and the history survives.
+# Unset means "next to the code", so nothing changes for local use.
+DATA_DIR = Path(os.environ.get("DATA_DIR") or HERE)
+
+SESSIONS_FILE = DATA_DIR / "sessions.jsonl"
 
 # --- Cohere transcription (optional) ----------------------------------------
 # The audio is uploaded to Cohere to be transcribed, so the page never claims
@@ -62,11 +71,11 @@ SESSIONS_FILE = HERE / "sessions.jsonl"
 # The key is read from one small file, api_key.txt, or from COHERE_API_KEY.
 # Keeping it in a file means a student can paste one line and run, and the key
 # never appears in their shell history.
-API_KEY_FILE = HERE / "api_key.txt"
+API_KEY_FILE = DATA_DIR / "api_key.txt"
 
 # The AI-chat key lives in its own file so it can never be confused with the
 # Cohere transcription key. Both are gitignored.
-LLM_KEY_FILE = HERE / "llm_api_key.txt"
+LLM_KEY_FILE = DATA_DIR / "llm_api_key.txt"
 
 # Set while the startup test run is in progress: the suite starts its own
 # server, and its access log would bury the startup output this window exists
@@ -1138,7 +1147,9 @@ def llm_status() -> dict:
         "hint": ("…" + key[-4:]) if len(key) >= 8 else "",
         "model": (cfg or {}).get("model", ""),
         "provider": (cfg or {}).get("provider", ""),
-        "config_exists": (HERE / "llm_config.json").is_file(),
+        # The config actually loaded, so a deploy that sets LLM_CONFIG
+        # reports the truth instead of denying the file it is answering from.
+        "config_exists": load_llm_config() is not None,
     }
 
 
@@ -1230,7 +1241,10 @@ def ensure_llm_config() -> bool:
     write the matching config.
     """
     existing = None
-    if (HERE / "llm_config.json").exists():
+    # The config the server actually loaded — llm_config.json on a Mac, or
+    # whatever LLM_CONFIG names in a deployment. Asking only about the hard-
+    # coded name made a deployed server write a second, conflicting file.
+    if load_llm_config() is not None:
         existing = load_llm_config()
         # Switch only between the two official configs, and only when the key
         # pasted in Settings plainly belongs to the other one. A hand-edited
@@ -1493,7 +1507,10 @@ def transcribe_audio(data: bytes, filename: str, language: str) -> dict:
             ),
         }
 
-    tmp = HERE / f".upload_{uuid.uuid4().hex[:8]}{ext}"
+    # DATA_DIR, not HERE: the deployed code folder belongs to a different
+    # owner than the running user, and a read-only code folder must not turn
+    # a transcription into a 500.
+    tmp = DATA_DIR / f".upload_{uuid.uuid4().hex[:8]}{ext}"
     try:
         tmp.write_bytes(data)
         import cohere_transcribe as ct
@@ -1551,8 +1568,18 @@ def load_llm_config() -> Optional[dict]:
     Absent is the normal case: the page then answers from its own
     measurements, and says so. The API key is never read from this file —
     only the NAME of the environment variable that holds it.
+
+    A deployed server has no interactive terminal, so a key cannot be pasted
+    in Settings to create this file. Setting LLM_CONFIG to the name of a
+    committed config (llm_config.deploy.json) selects that file instead. On a
+    Mac the variable is unset and nothing changes.
     """
-    path = HERE / "llm_config.json"
+    name = (os.environ.get("LLM_CONFIG") or "llm_config.json").strip()
+    # A shared server must never be pointed at an arbitrary path by an
+    # environment variable; only a bare filename inside this folder is allowed.
+    if "/" in name or "\\" in name or name in ("..", "."):
+        name = "llm_config.json"
+    path = HERE / name
     if not path.is_file():
         return None
     try:
@@ -2240,7 +2267,10 @@ def run_startup_checks() -> None:
         total = 0
         failed = 0
         skipped = 0
-        for module_name in ("test_app", "test_features"):
+        # test_deploy is included: it checks the Dockerfile, the Railway
+        # config and the CI workflow are actually present. Those files went
+        # missing twice, and the deploy is the one thing a judge needs.
+        for module_name in ("test_app", "test_features", "test_deploy"):
             try:
                 module = __import__(module_name)
             except Exception as exc:  # noqa: BLE001
